@@ -114,6 +114,38 @@
     hr.sep{border:none;border-top:1px solid var(--border);margin:14px 0}
     a.inline{color:var(--accent)}
 
+    /* add-document options */
+    .option{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:var(--pad);margin:12px 0;cursor:pointer}
+    .option:active{border-color:var(--accent)}
+    .oico{font-size:28px;width:36px;text-align:center}
+    .thumbs{display:flex;gap:8px;overflow-x:auto;margin:8px 0}
+    .thumbs img{height:128px;border-radius:var(--r-chip);border:1px solid var(--border);background:var(--surface)}
+    .thumbs.big img{height:auto;max-height:420px;max-width:100%}
+
+    /* fields the reader was unsure about (amber = status, spec §2.1) */
+    input.uncertain{border:1.5px solid var(--warn)}
+    .uncertain-box{outline:1.5px solid var(--warn);outline-offset:4px;border-radius:var(--r-chip)}
+    .warn-text{color:var(--warn)}
+    .okbtn{padding:6px 0;font-size:14px}
+    .link-row{cursor:pointer}
+    details summary{cursor:pointer;font-weight:600}
+    pre.ocr{white-space:pre-wrap;font-family:inherit;font-size:14px;margin:8px 0 0}
+
+    /* symptom assistant */
+    .bubble-user{margin-left:48px;border-color:var(--accent)}
+    .bubble-bot{margin-right:32px}
+    .bubble-summary{border-color:var(--accent)}
+    .bubble-emergency{border:2px solid var(--danger)}
+    .bubble-emergency .btn{text-decoration:none}
+    .msg{line-height:1.55}
+
+    /* in-page reminder */
+    .toast{position:fixed;left:16px;right:16px;bottom:90px;max-width:488px;margin:0 auto;background:var(--bg);border:2px solid var(--accent);border-radius:var(--r-card);padding:var(--pad);z-index:20}
+    .toast .btn{margin-top:10px;height:44px}
+    .spin{display:inline-block;animation:spin 1.2s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .tabs a{font-size:10.5px}
+
     @media print{
       .topbar,.tabs,.fab,.adslot,.noprint{display:none!important}
       body{background:#fff;color:#000}

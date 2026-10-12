@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "jest",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "build:web": "node scripts/build-web.mjs"
   },
   "dependencies": {
     "@op-engineering/op-sqlite": "^11.0.0",
@@ -48,5 +49,8 @@
     "jest": "^29.7.0",
     "ts-jest": "^29.2.0",
     "typescript": "~5.6.0"
+  },
+  "op-sqlite": {
+    "sqlcipher": true
   }
 }

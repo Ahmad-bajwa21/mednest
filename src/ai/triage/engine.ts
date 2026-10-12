@@ -1,0 +1,442 @@
+// Symptom assistant engine (spec §1, §12). A deterministic state machine over the
+// protocols in ./protocols:
+//   1. every user message is screened for emergency warning signs FIRST — an emergency
+//      ends the questioning immediately with a fixed message;
+//   2. the complaint picks a protocol; anything the patient already said in the opening
+//      message pre-fills the matching questions, which are then skipped (adaptive);
+//   3. remaining relevant questions are asked one at a time; conditional questions are
+//      asked only when relevant; history (earlier episodes) replaces repeat questions;
+//   4. requests for medicines/doses get a fixed reply (never a recommendation);
+//   5. the outcome (disposition) is computed by rules, then summarised by template.
+// The optional `interpret` hook lets the on-device model map an answer the parsers could
+// not read onto the slot's ALLOWED options — it can never add values or advice.
+import { detectRedFlags, highestLevel, sortFlags, EMERGENCY_MESSAGE, SELF_HARM_MESSAGE, type FlagLevel, type RedFlag } from './redFlags';
+import { isSkip, parseChoice, parseDuration, parseMulti, parseSeverity, parseYesNo } from './parse';
+import {
+  GENERAL_PROTOCOL,
+  PROTOCOL_VERSION,
+  PROTOCOLS,
+  matchProtocol,
+  protocolById,
+  type AnswerValue,
+  type Answers,
+  type Protocol,
+  type Slot,
+  type TriageContext,
+} from './protocols';
+
+export const TRIAGE_ENGINE_VERSION = `triage-engine-0.1 (${PROTOCOL_VERSION})`;
+
+export type Disposition = 'emergency' | 'urgent' | 'gp' | 'self_care' | 'insufficient';
+
+export interface Turn {
+  role: 'user' | 'assistant';
+  text: string;
+  at: string; // ISO timestamp
+}
+
+export interface AssistantMessage {
+  kind: 'question' | 'emergency' | 'summary' | 'info';
+  text: string;
+  quickReplies?: string[];
+}
+
+export interface TriageState {
+  protocolId: string | null;
+  complaint: string | null;
+  answers: Answers;
+  /** Slots filled from free text without a direct question (shown for confirmation). */
+  prefilled: string[];
+  pendingSlot: string | null;
+  /** Times the current question was re-asked because the answer was not understood. */
+  retries: number;
+  flags: RedFlag[];
+  done: boolean;
+  disposition: Disposition | null;
+  transcript: Turn[];
+}
+
+export interface TriageOutcome {
+  disposition: Disposition;
+  flags: RedFlag[];
+  summary: string;
+  advice: string;
+  generalInfo: string[];
+  safetyNet: string[];
+  contextNotes: string[];
+}
+
+export type Interpreter = (slot: Slot, answer: string) => Promise<string | string[] | null>;
+
+export const MEDICINE_REPLY =
+  'I can’t recommend medicines or doses. A doctor or pharmacist can advise you safely, taking your other medicines and allergies into account.';
+
+export const DISCLAIMER =
+  'This is general information from a rules-based assistant, not a diagnosis. It does not replace a doctor’s assessment.';
+
+const MEDICINE_REQUEST =
+  /\b(what|which) (medicine|medication|tablet|pill|drug|antibiotic|painkiller|syrup)\b|\b(can|should) i take\b|\bhow much .* (take|give)\b|\bdose of\b|\bdosage\b|\bprescribe\b|\b(kaunsi|konsi) (dawai|dawa|goli)\b/i;
+
+const START_PROMPT = 'Hi. Tell me what is bothering you today, in your own words. For example: "I have stomach pain since yesterday".';
+
+const SKIP_REPLY = 'Not sure';
+const MAX_RETRIES = 1;
+
+function nowIso(ctx: TriageContext) {
+  return ctx.now.toISOString();
+}
+
+function say(state: TriageState, ctx: TriageContext, msg: AssistantMessage): AssistantMessage {
+  state.transcript.push({ role: 'assistant', text: msg.text, at: nowIso(ctx) });
+  return msg;
+}
+
+export function startTriage(ctx: TriageContext): { state: TriageState; messages: AssistantMessage[] } {
+  const state: TriageState = {
+    protocolId: null,
+    complaint: null,
+    answers: {},
+    prefilled: [],
+    pendingSlot: null,
+    retries: 0,
+    flags: [],
+    done: false,
+    disposition: null,
+    transcript: [],
+  };
+  return { state, messages: [say(state, ctx, { kind: 'info', text: START_PROMPT })] };
+}
+
+/** Feed one user message. Returns a NEW state plus the assistant's replies. */
+export async function respond(
+  prev: TriageState,
+  text: string,
+  ctx: TriageContext,
+  interpret?: Interpreter,
+): Promise<{ state: TriageState; messages: AssistantMessage[] }> {
+  const state: TriageState = structuredCloneState(prev);
+  const messages: AssistantMessage[] = [];
+  const input = text.trim();
+  if (!input) return { state, messages };
+  state.transcript.push({ role: 'user', text: input, at: nowIso(ctx) });
+
+  // 1. Warning signs first, on every message — even after the assessment ended.
+  const free = detectRedFlags(input);
+  if (free.length) mergeFlags(state, free);
+  if (highestLevel(free) === 'emergency') {
+    messages.push(...finishEmergency(state, ctx, free));
+    return { state, messages };
+  }
+
+  if (state.done) {
+    messages.push(say(state, ctx, { kind: 'info', text: 'This assessment is complete. Start a new check if you have a different problem.' }));
+    return { state, messages };
+  }
+
+  // 2. Medicine/dose requests get a fixed reply; the current question is repeated.
+  if (MEDICINE_REQUEST.test(input)) {
+    messages.push(say(state, ctx, { kind: 'info', text: MEDICINE_REPLY }));
+    if (state.pendingSlot) {
+      const slot = currentProtocol(state).slots.find((s) => s.id === state.pendingSlot);
+      if (slot) messages.push(say(state, ctx, questionFor(slot, state, ctx)));
+    } else {
+      messages.push(say(state, ctx, { kind: 'info', text: START_PROMPT }));
+    }
+    return { state, messages };
+  }
+
+  // 3. Choose the protocol from the opening complaint.
+  if (!state.protocolId) {
+    const chosen = PROTOCOLS.find((p) => p.label.toLowerCase() === input.toLowerCase()) ?? matchProtocol(input);
+    if (!chosen && state.complaint === null) {
+      state.complaint = input;
+      messages.push(
+        say(state, ctx, {
+          kind: 'question',
+          text: 'Which of these is closest to your main problem?',
+          quickReplies: PROTOCOLS.map((p) => p.label),
+        }),
+      );
+      return { state, messages };
+    }
+    const protocol = chosen ?? GENERAL_PROTOCOL;
+    state.protocolId = protocol.id;
+    state.complaint = state.complaint ?? input;
+    prefillFromText(state, protocol, state.complaint + ' ' + (state.complaint === input ? '' : input));
+  } else if (state.pendingSlot) {
+    // 4. Answer to the pending question.
+    const protocol = currentProtocol(state);
+    const slot = protocol.slots.find((s) => s.id === state.pendingSlot);
+    if (slot) {
+      const value = await readAnswer(slot, input, interpret);
+      if (value === null && state.retries < MAX_RETRIES) {
+        state.retries++;
+        messages.push(say(state, ctx, { ...questionFor(slot, state, ctx), text: `Sorry, I didn’t quite get that. ${questionFor(slot, state, ctx).text}` }));
+        return { state, messages };
+      }
+      const before = state.answers[slot.id];
+      if (value?.kind === 'multi' && before?.kind === 'multi') {
+        // "Besides vomiting, any of these?" — keep what the opening message told us.
+        const extra = value.values.includes('none') ? [] : value.values.map((v, i) => [v, value.labels[i]!] as const);
+        const merged = [...before.values.map((v, i) => [v, before.labels[i]!] as const), ...extra.filter(([v]) => !before.values.includes(v))];
+        state.answers[slot.id] = { kind: 'multi', values: merged.map(([v]) => v), labels: merged.map(([, l]) => l) };
+      } else if (before?.kind === 'multi' && (!value || value.kind === 'skipped')) {
+        // keep the prefilled symptoms
+      } else {
+        state.answers[slot.id] = value ?? (slot.kind === 'text' ? { kind: 'text', value: input } : { kind: 'skipped' });
+      }
+      state.pendingSlot = null;
+      state.retries = 0;
+    }
+  }
+
+  // 5. Protocol rules after every answer.
+  const protocol = currentProtocol(state);
+  mergeFlags(state, protocol.rules(state.answers, ctx));
+  if (highestLevel(state.flags) === 'emergency') {
+    messages.push(...finishEmergency(state, ctx, state.flags));
+    return { state, messages };
+  }
+  if (highestLevel(state.flags) === 'urgent' && !messages.some((m) => m.kind === 'info') && !state.transcript.some((t) => t.text.startsWith(URGENT_NOTE))) {
+    messages.push(say(state, ctx, { kind: 'info', text: `${URGENT_NOTE} ${state.flags.filter((f) => f.level === 'urgent').map((f) => f.reason).join('; ')}. I’ll ask just a few more questions.` }));
+  }
+
+  // 6. Next relevant question, or the outcome.
+  const next = nextSlot(protocol, state, ctx);
+  if (next) {
+    state.pendingSlot = next.id;
+    messages.push(say(state, ctx, questionFor(next, state, ctx)));
+    return { state, messages };
+  }
+  const outcome = computeOutcome(state, ctx);
+  state.done = true;
+  state.disposition = outcome.disposition;
+  messages.push(say(state, ctx, { kind: 'summary', text: renderOutcome(outcome) }));
+  return { state, messages };
+}
+
+const URGENT_NOTE = 'Please arrange to see a doctor today because of';
+
+function structuredCloneState(s: TriageState): TriageState {
+  return JSON.parse(JSON.stringify(s)) as TriageState;
+}
+
+function currentProtocol(state: TriageState): Protocol {
+  return protocolById(state.protocolId) ?? GENERAL_PROTOCOL;
+}
+
+function mergeFlags(state: TriageState, flags: RedFlag[]) {
+  const seen = new Set(state.flags.map((f) => f.id));
+  for (const f of flags) if (!seen.has(f.id)) state.flags.push(f);
+  state.flags = sortFlags(state.flags);
+}
+
+function finishEmergency(state: TriageState, ctx: TriageContext, flags: RedFlag[]): AssistantMessage[] {
+  state.done = true;
+  state.disposition = 'emergency';
+  state.pendingSlot = null;
+  const selfHarm = flags.some((f) => f.id === 'self_harm');
+  const reasons = flags.filter((f) => f.level === 'emergency').map((f) => f.reason);
+  const text = selfHarm ? SELF_HARM_MESSAGE : `You mentioned ${joinAnd(reasons)}. ${EMERGENCY_MESSAGE}`;
+  return [say(state, ctx, { kind: 'emergency', text })];
+}
+
+function nextSlot(protocol: Protocol, state: TriageState, ctx: TriageContext): Slot | undefined {
+  return protocol.slots.find((s) => {
+    const a = state.answers[s.id];
+    const partialMulti = a?.kind === 'multi' && state.prefilled.includes(s.id) && !a.values.includes('none');
+    if (a && !partialMulti) return false;
+    if (partialMulti && state.transcript.some((t) => t.role === 'assistant' && t.text.startsWith(otherThan(a.labels)))) return false;
+    return s.askIf ? s.askIf(state.answers, ctx) : true;
+  });
+}
+
+function otherThan(labels: string[]) {
+  return `Besides ${joinAnd(labels.map((l) => l.toLowerCase()))}`;
+}
+
+function questionFor(slot: Slot, state: TriageState, ctx: TriageContext): AssistantMessage {
+  const a = state.answers[slot.id];
+  // History-aware: an earlier episode of the same problem replaces "had it before?".
+  if (slot.id === 'previous') {
+    const prior = ctx.priorEpisodes.filter((e) => e.protocolId === state.protocolId).sort((x, z) => z.date.localeCompare(x.date))[0];
+    if (prior) {
+      return {
+        kind: 'question',
+        text: `Your history shows you reported ${prior.complaint.toLowerCase()} on ${prior.date}. Does this feel similar to that time?`,
+        quickReplies: ['Yes', 'No', SKIP_REPLY],
+      };
+    }
+  }
+  if (slot.kind === 'multi' && a?.kind === 'multi') {
+    return {
+      kind: 'question',
+      text: `${otherThan(a.labels)}, do you have any of these?`,
+      quickReplies: (slot.options ?? []).filter((o) => !a.values.includes(o.value)).map((o) => o.label),
+    };
+  }
+  const quickReplies =
+    slot.kind === 'yesno' ? ['Yes', 'No', SKIP_REPLY]
+    : slot.kind === 'scale' ? ['2 – mild', '5 – moderate', '8 – severe', '10 – worst']
+    : slot.options ? [...slot.options.map((o) => o.label), SKIP_REPLY]
+    : [SKIP_REPLY];
+  return { kind: 'question', text: slot.question, quickReplies };
+}
+
+async function readAnswer(slot: Slot, input: string, interpret?: Interpreter): Promise<AnswerValue | null> {
+  if (isSkip(input)) return { kind: 'skipped' };
+  const opts = slot.options ?? [];
+  const label = (v: string) => opts.find((o) => o.value === v)?.label ?? v;
+  switch (slot.kind) {
+    case 'duration': {
+      const d = parseDuration(input);
+      return d ? { kind: 'duration', hours: d.hours, text: d.text } : null;
+    }
+    case 'scale': {
+      const n = parseSeverity(input);
+      return n === null ? null : { kind: 'scale', value: n };
+    }
+    case 'yesno': {
+      const b = parseYesNo(input);
+      return b === null ? null : { kind: 'yesno', value: b };
+    }
+    case 'text':
+      return { kind: 'text', value: input };
+    case 'choice': {
+      let v = parseChoice(input, opts);
+      if (!v && interpret) {
+        const m = await interpret(slot, input);
+        v = typeof m === 'string' && opts.some((o) => o.value === m) ? m : null; // allowed values only
+      }
+      return v ? { kind: 'choice', value: v, label: label(v) } : null;
+    }
+    case 'multi': {
+      let vs = parseMulti(input, opts);
+      if (!vs && interpret) {
+        const m = await interpret(slot, input);
+        const arr = Array.isArray(m) ? m.filter((x) => x === 'none' || opts.some((o) => o.value === x)) : [];
+        vs = arr.length ? arr : null;
+      }
+      return vs ? { kind: 'multi', values: vs, labels: vs.map(label) } : null;
+    }
+  }
+}
+
+/** Fill slots from what the patient already said, so we never ask it again. */
+function prefillFromText(state: TriageState, protocol: Protocol, text: string) {
+  for (const slot of protocol.slots) {
+    if (!slot.prefillable || state.answers[slot.id]) continue;
+    let v: AnswerValue | null = null;
+    const opts = slot.options ?? [];
+    if (slot.kind === 'duration') {
+      const d = parseDuration(text);
+      if (d) v = { kind: 'duration', hours: d.hours, text: d.text };
+    } else if (slot.kind === 'scale') {
+      const n = parseSeverity(text, true);
+      if (n !== null) v = { kind: 'scale', value: n };
+    } else if (slot.kind === 'choice') {
+      const c = opts.filter((o) => o.aliases?.test(text.toLowerCase()));
+      if (c.length === 1) v = { kind: 'choice', value: c[0]!.value, label: c[0]!.label };
+    } else if (slot.kind === 'multi') {
+      const vs = parseMulti(text, opts)?.filter((x) => x !== 'none');
+      if (vs?.length) v = { kind: 'multi', values: vs, labels: vs.map((x) => opts.find((o) => o.value === x)?.label ?? x) };
+    }
+    if (v) {
+      state.answers[slot.id] = v;
+      state.prefilled.push(slot.id);
+    }
+  }
+}
+
+/* ============================== outcome ============================== */
+
+const ADVICE: Record<Disposition, string> = {
+  emergency: EMERGENCY_MESSAGE,
+  urgent: 'Please see a doctor today, at a clinic, urgent care or emergency department. If you get worse before then, seek emergency care.',
+  gp: 'Please book an appointment with a general physician (GP) in the next few days.',
+  self_care: 'From what you told me, this can usually be watched at home for now.',
+  insufficient: 'I don’t have enough information to guide you safely. If you are worried, please speak to a doctor.',
+};
+
+export function computeOutcome(state: TriageState, ctx: TriageContext): TriageOutcome {
+  const protocol = currentProtocol(state);
+  const flags = sortFlags(state.flags);
+  const level: FlagLevel | null = highestLevel(flags);
+  const asked = protocol.slots.filter((s) => (s.askIf ? s.askIf(state.answers, ctx) : true));
+  const skipped = asked.filter((s) => !state.answers[s.id] || state.answers[s.id]!.kind === 'skipped').length;
+
+  let disposition: Disposition;
+  if (level === 'emergency') disposition = 'emergency';
+  else if (level === 'urgent') disposition = 'urgent';
+  else if (asked.length && skipped / asked.length >= 0.5) disposition = 'insufficient';
+  else if (level === 'gp') disposition = 'gp';
+  else {
+    const sev = state.answers.severity?.kind === 'scale' ? state.answers.severity.value : null;
+    disposition = sev !== null && sev >= 6 ? 'gp' : 'self_care';
+  }
+
+  let advice = ADVICE[disposition];
+  if (disposition === 'self_care') advice += ` If it is not better within ${protocol.seeGpAfterDays} day${protocol.seeGpAfterDays === 1 ? '' : 's'}, or it gets worse, see a doctor.`;
+  if ((disposition === 'urgent' || disposition === 'gp') && flags.length) advice += ` Reason: ${joinAnd(flags.filter((f) => f.level === level || disposition === 'gp').map((f) => f.reason))}.`;
+
+  const contextNotes: string[] = [];
+  if (ctx.allergies?.trim()) contextNotes.push(`Your record lists an allergy: ${ctx.allergies.trim()}. Tell any doctor or pharmacist you see.`);
+  if (ctx.activeMedicines.length) contextNotes.push(`You are currently taking: ${ctx.activeMedicines.join(', ')}. Mention these to the doctor. Do not stop or change them without medical advice.`);
+  const prior = ctx.priorEpisodes.filter((e) => e.protocolId === protocol.id);
+  if (prior.length) contextNotes.push(`You have reported this ${prior.length} time${prior.length === 1 ? '' : 's'} before (last on ${prior.map((p) => p.date).sort().pop()}). Repeated episodes are worth discussing with a doctor.`);
+
+  return {
+    disposition,
+    flags,
+    summary: summarise(state, protocol),
+    advice,
+    generalInfo: disposition === 'self_care' || disposition === 'gp' ? protocol.generalInfo : [],
+    safetyNet: protocol.safetyNet,
+    contextNotes,
+  };
+}
+
+export function summarise(state: TriageState, protocol: Protocol = currentProtocol(state)): string {
+  const parts: string[] = [];
+  for (const slot of protocol.slots) {
+    const a = state.answers[slot.id];
+    if (!a || a.kind === 'skipped') continue;
+    const v =
+      a.kind === 'duration' ? (a.text === 'today' || a.text.startsWith('since') || a.text.includes('ago') ? a.text : `about ${a.text} ago`)
+      : a.kind === 'scale' ? `${a.value}/10`
+      : a.kind === 'choice' ? a.label
+      : a.kind === 'multi' ? (a.values.includes('none') && a.values.length === 1 ? 'none' : a.labels.filter((l) => l !== 'None of these').join(', '))
+      : a.kind === 'yesno' ? (a.value ? 'yes' : 'no')
+      : a.value;
+    parts.push(`${slot.label}: ${v}`);
+  }
+  const head = `${protocol.id === 'general' ? 'Problem' : protocol.label}${state.complaint ? ` — “${state.complaint}”` : ''}`;
+  return [head, ...parts].join('\n');
+}
+
+const HEADINGS: Record<Disposition, string> = {
+  emergency: 'Seek emergency care now',
+  urgent: 'See a doctor today',
+  gp: 'See a GP in the next few days',
+  self_care: 'Watch at home for now',
+  insufficient: 'Not enough information',
+};
+
+export function renderOutcome(o: TriageOutcome): string {
+  const lines = [`${HEADINGS[o.disposition]}`, '', 'What you told me:', o.summary, '', o.advice];
+  if (o.generalInfo.length) lines.push('', 'General information:', ...o.generalInfo.map((s) => `• ${s}`));
+  if (o.safetyNet.length) lines.push('', 'Get medical help sooner if:', ...o.safetyNet.map((s) => `• ${s}`));
+  if (o.contextNotes.length) lines.push('', 'From your records:', ...o.contextNotes.map((s) => `• ${s}`));
+  lines.push('', DISCLAIMER);
+  return lines.join('\n');
+}
+
+export function dispositionHeading(d: Disposition): string {
+  return HEADINGS[d];
+}
+
+function joinAnd(xs: string[]): string {
+  const u = [...new Set(xs)];
+  if (u.length <= 1) return u[0] ?? '';
+  return `${u.slice(0, -1).join(', ')} and ${u[u.length - 1]}`;
+}

@@ -57,6 +57,10 @@ export interface ScheduledAlarm {
   lockScreenBody?: string;
   /** Daily repeat etc. — encoded like an RRULE subset. */
   repeatRule?: string;
+  /** Which action buttons to show: dose = Taken / Later / Skip. */
+  category?: 'dose' | 'appointment';
+  /** Delivered back with the user's response (profileId, medicineId, doseKey, …). */
+  data?: Record<string, string | number>;
 }
 export interface AlarmScheduler {
   /** Register an exact alarm that survives reboot and Doze (§9.6). */
@@ -72,4 +76,17 @@ export interface ForegroundService {
   /** Start a foreground service so a long (≤60s) extraction can finish (§6.8/§9.3). */
   start(notificationText: string): Promise<void>;
   stop(): Promise<void>;
+}
+
+export interface ScannedDocument {
+  /** One cropped, perspective-corrected image per page (local file URIs). */
+  pages: string[];
+}
+export interface DocumentScanner {
+  /**
+   * Open the camera document scanner: edge detection, auto-crop, perspective and
+   * rotation correction, retake per page. Resolves null if the user cancelled.
+   * Real impl: Google ML Kit Document Scanner (on-device, no camera permission needed).
+   */
+  scan(maxPages?: number): Promise<ScannedDocument | null>;
 }

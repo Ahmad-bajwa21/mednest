@@ -2,6 +2,7 @@
 // (native.llm, e.g. Gemma) — no API, no server, offline, free. General education only;
 // refuses personal diagnosis/treatment. No internet access, so no web search.
 import { native } from '../native';
+import { detectRedFlags, EMERGENCY_MESSAGE, SELF_HARM_MESSAGE } from '../ai/triage/redFlags';
 
 export const HEALTH_SYSTEM = `You are a careful health-information assistant inside the MedNest app.
 Rules you must always follow:
@@ -23,6 +24,10 @@ export function buildHealthPrompt(history: ChatTurn[]): string {
 }
 
 export async function askHealthInfo(history: ChatTurn[]): Promise<string> {
+  // Emergency warning signs get the fixed message in code — never a model answer.
+  const last = [...history].reverse().find((t) => t.role === 'user');
+  const flags = last ? detectRedFlags(last.text) : [];
+  if (flags[0]?.level === 'emergency') return flags.some((f) => f.id === 'self_harm') ? SELF_HARM_MESSAGE : EMERGENCY_MESSAGE;
   await native.llm.ensureReady();
   const out = await native.llm.generate(buildHealthPrompt(history), { temperature: 0.4, maxTokens: 400 });
   return out.trim();

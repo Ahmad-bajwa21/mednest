@@ -1,7 +1,8 @@
 // Dev stubs for the native modules. They let the app run end-to-end on a simulator or
 // in tests before the real on-device modules are wired in. Each stub is deliberately
 // obvious (prefixed output, fake vectors) so stub data is never mistaken for real.
-import type { AlarmScheduler, Embedder, ForegroundService, LlmRunner, OcrEngine, ScheduledAlarm } from './types';
+import * as ImagePicker from 'expo-image-picker';
+import type { AlarmScheduler, DocumentScanner, Embedder, ForegroundService, LlmRunner, OcrEngine, ScannedDocument, ScheduledAlarm } from './types';
 
 export class StubLlmRunner implements LlmRunner {
   readonly modelVersion = 'stub-llm-0';
@@ -60,4 +61,16 @@ export class StubAlarmScheduler implements AlarmScheduler {
 export class StubForegroundService implements ForegroundService {
   async start() {}
   async stop() {}
+}
+
+// Fallback scanner: the plain system camera (no edge detection / perspective
+// correction). The review screen still lets the user retake a blurry photo.
+export class CameraFallbackScanner implements DocumentScanner {
+  async scan(): Promise<ScannedDocument | null> {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) throw new Error('camera-permission-denied');
+    const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.9, allowsEditing: true });
+    if (res.canceled || !res.assets.length) return null;
+    return { pages: res.assets.map((a) => a.uri) };
+  }
 }

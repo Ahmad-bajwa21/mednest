@@ -30,6 +30,10 @@ export const documents = sqliteTable('documents', {
   status: text('status').notNull(), // queued|processing|needsReview|confirmed|failed
   modelVersion: text('model_version'),
   followUp: text('follow_up'),
+  // How the document arrived: camera | gallery | file | manual
+  source: text('source'),
+  // Raw AI extraction (Task A JSON) kept for provenance — AI-read vs user-confirmed.
+  extractionJson: text('extraction_json'),
   createdAt: text('created_at').notNull(),
 });
 
@@ -46,7 +50,14 @@ export const medicines = sqliteTable('medicines', {
   startDate: text('start_date'),
   endDate: text('end_date'),
   instructions: text('instructions'),
+  // true while the medicine is current (active or paused); kept in sync with status.
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  status: text('status').notNull().default('active'), // pending|active|paused|completed|discontinued
+  asNeeded: integer('as_needed', { mode: 'boolean' }).notNull().default(false),
+  // document_confirmed (AI-read, user-confirmed) | manual (typed by the user)
+  source: text('source'),
+  confirmedAt: text('confirmed_at'),
+  updatedAt: text('updated_at'),
 });
 
 export const testResults = sqliteTable('test_results', {
@@ -73,12 +84,67 @@ export const reminders = sqliteTable('reminders', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
 });
 
+// One row per dose the USER acted on. An alarm being delivered never creates a row —
+// a dose is only "taken" when the user says so (spec §6).
 export const doseLogs = sqliteTable('dose_logs', {
   id: text('id').primaryKey(),
-  reminderId: text('reminder_id').notNull(),
+  profileId: text('profile_id').notNull(),
+  medicineId: text('medicine_id').notNull(),
+  reminderId: text('reminder_id'),
+  doseKey: text('dose_key').notNull().unique(), // medicineId:YYYY-MM-DD:HH:mm
   scheduledAt: text('scheduled_at').notNull(),
   status: text('status').notNull(), // taken | skipped | missed
   loggedAt: text('logged_at'),
+});
+
+// Doctor appointments and follow-ups (spec §7). A follow-up read from a document is
+// stored as 'proposed' and only becomes 'planned' (with reminders) once confirmed.
+export const appointments = sqliteTable('appointments', {
+  id: text('id').primaryKey(),
+  profileId: text('profile_id').notNull(),
+  documentId: text('document_id'),
+  date: text('date'), // YYYY-MM-DD; null while the user still has to choose it
+  time: text('time'), // HH:mm
+  doctor: text('doctor'),
+  reason: text('reason'),
+  sourceText: text('source_text'), // follow-up text as written on the document
+  basis: text('basis'), // written_date | relative_to_document | needs_user | manual
+  status: text('status').notNull(), // proposed | planned | completed | cancelled
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at'),
+});
+
+// Symptom assessments from the assistant — patient-reported, never a diagnosis.
+export const symptomEpisodes = sqliteTable('symptom_episodes', {
+  id: text('id').primaryKey(),
+  profileId: text('profile_id').notNull(),
+  protocolId: text('protocol_id'),
+  complaint: text('complaint').notNull(),
+  answers: text('answers'), // JSON Answers
+  flags: text('flags'), // JSON RedFlag[]
+  disposition: text('disposition'), // emergency|urgent|gp|self_care|insufficient
+  summary: text('summary'),
+  engineVersion: text('engine_version').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
+export const chatSessions = sqliteTable('chat_sessions', {
+  id: text('id').primaryKey(),
+  profileId: text('profile_id').notNull(),
+  episodeId: text('episode_id'),
+  transcript: text('transcript').notNull(), // JSON Turn[]
+  createdAt: text('created_at').notNull(),
+});
+
+// Append-only change log: what changed in the record, when, and from what (spec §8/§11).
+export const auditLog = sqliteTable('audit_log', {
+  id: text('id').primaryKey(),
+  profileId: text('profile_id'),
+  entity: text('entity').notNull(), // document | medicine | appointment | dose | episode | profile
+  entityId: text('entity_id'),
+  action: text('action').notNull(), // create | update | status | delete | export
+  detail: text('detail'), // JSON { before?, after?, note? }
+  at: text('at').notNull(),
 });
 
 export const chunks = sqliteTable('chunks', {
@@ -125,5 +191,9 @@ export type DoseLogRow = typeof doseLogs.$inferSelect;
 export type ChunkRow = typeof chunks.$inferSelect;
 export type PatternNoteRow = typeof patternNotes.$inferSelect;
 export type SummaryRow = typeof summaries.$inferSelect;
+export type AppointmentRow = typeof appointments.$inferSelect;
+export type SymptomEpisodeRow = typeof symptomEpisodes.$inferSelect;
+export type ChatSessionRow = typeof chatSessions.$inferSelect;
+export type AuditRow = typeof auditLog.$inferSelect;
 
 export const MAX_PROFILES = 4; // spec RULE — enforced in the repository layer

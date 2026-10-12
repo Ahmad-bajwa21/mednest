@@ -11,7 +11,7 @@ If something is unclear or missing, use null and add its name to "unsure".
 
 Return JSON:
 {
- "type": "prescription|lab_report|scan_report|bill|other",
+ "type": "prescription|lab_report|scan_report|discharge_summary|bill|other",
  "patient_name": string|null,
  "date": "YYYY-MM-DD"|null,
  "doctor": string|null,

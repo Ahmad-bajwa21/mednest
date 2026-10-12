@@ -4,6 +4,8 @@ import { open } from '@op-engineering/op-sqlite';
 import { drizzle } from 'drizzle-orm/op-sqlite';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
+import { deleteAllImages } from './files';
+import { migrate } from './migrations';
 
 const DB_NAME = 'mednest.db';
 const KEY_ALIAS = 'mednest.db.key';
@@ -21,20 +23,30 @@ async function getOrCreateKey(): Promise<string> {
   return key;
 }
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let _db: Promise<ReturnType<typeof drizzle>> | null = null;
 
-export async function getDb() {
-  if (_db) return _db;
-  const encryptionKey = await getOrCreateKey();
-  const conn = open({ name: DB_NAME, encryptionKey });
-  _db = drizzle(conn);
+// Cached as a promise so concurrent first calls share one open + migration.
+export function getDb() {
+  if (!_db) {
+    _db = (async () => {
+      const encryptionKey = await getOrCreateKey();
+      // encryptionKey only takes effect because package.json sets "op-sqlite": { "sqlcipher": true }.
+      const conn = open({ name: DB_NAME, encryptionKey });
+      await migrate(conn);
+      return drizzle(conn);
+    })().catch((e) => {
+      _db = null;
+      throw e;
+    });
+  }
   return _db;
 }
 
-// Called from Settings → "Delete all data" (§10): wipe DB file + key.
+// Called from Settings → "Delete all data" (§10): wipe DB file, document images + key.
 export async function deleteEverything() {
   _db = null;
   const conn = open({ name: DB_NAME });
   conn.delete();
+  await deleteAllImages();
   await SecureStore.deleteItemAsync(KEY_ALIAS);
 }

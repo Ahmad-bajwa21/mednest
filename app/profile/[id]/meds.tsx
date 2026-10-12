@@ -1,54 +1,59 @@
-// S12 — Medicines. Active and past, with stop (moves to Past) and source link.
+// S12 — Medicines. Current (active / paused / waiting for details) and past (completed /
+// stopped). Tap a medicine to see or edit its schedule; "Doses" shows today's doses.
 import { useCallback } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
-import { useBundle } from '../../../src/features/useBundle';
-import { stopMedicine } from '../../../src/data/recordsRepo';
+import { useCare } from '../../../src/features/useCare';
 import { useTheme } from '../../../src/design/theme';
 import { Button, Card, Disclaimer, Text } from '../../../src/design/components';
 import { BottomTabs } from '../../../src/features/BottomTabs';
 import { layout, space } from '../../../src/design/tokens';
-import type { MedicineLike } from '../../../src/domain/types';
+import { deriveStatus, effectiveEndDate, formatTime, localDateIso, resolveTime, scheduleBlockers, type MedStatus } from '../../../src/domain/schedule';
+import type { CareMedicine } from '../../../src/domain/care';
+
+const STATUS_LABEL: Record<MedStatus, string> = { pending: 'Needs details', active: 'Active', paused: 'Paused', completed: 'Completed', discontinued: 'Stopped' };
 
 export default function Meds() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { bundle, reload } = useBundle(id);
+  const { data, reload } = useCare(id);
   const { c } = useTheme();
   useFocusEffect(useCallback(() => { reload(); }, [reload]));
 
-  const all = bundle?.medicines ?? [];
-  const active = all.filter((m) => m.active !== false);
-  const past = all.filter((m) => m.active === false);
+  const today = localDateIso(new Date());
+  const all = data?.medicines ?? [];
+  const current = all.filter((m) => ['active', 'paused', 'pending'].includes(deriveStatus(m, today)));
+  const past = all.filter((m) => !current.includes(m));
 
-  const onStop = async (mid: string) => {
-    await stopMedicine(mid);
-    reload();
+  const card = (m: CareMedicine) => {
+    const status = deriveStatus(m, today);
+    const needs = (status === 'active' || status === 'pending') && scheduleBlockers(m).length > 0;
+    const end = effectiveEndDate(m);
+    return (
+      <Card key={m.id} onPress={() => router.push(`/profile/${id}/medicine/${m.id}`)} style={needs ? { borderColor: c.warn } : undefined}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text variant="heading" style={{ flex: 1 }}>{m.name} {m.dose ?? ''}</Text>
+          <Text variant="label" color={needs ? c.warn : status === 'active' ? c.ok : c.textMuted}>{needs ? 'Needs details' : STATUS_LABEL[status]}</Text>
+        </View>
+        <Text muted>{m.asNeeded ? 'When needed' : m.times.length ? m.times.map((t) => { const r = resolveTime(t); return r ? formatTime(r) : t; }).join(' · ') : 'No times set'}</Text>
+        <Text variant="caption" muted>{end ? `Until ${end}` : m.durationDays ? `For ${m.durationDays} days` : 'No end date'}{m.instructions ? ` · ${m.instructions}` : ''}</Text>
+      </Card>
+    );
   };
-
-  const MedCard = ({ m }: { m: MedicineLike }) => (
-    <Card>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text variant="heading">{m.name} {m.dose ?? ''}</Text>
-        {m.active !== false ? <Button kind="text" title="Stop" onPress={() => onStop(m.id)} /> : <Text variant="caption" muted>Past</Text>}
-      </View>
-      <Text muted>{m.times.length ? m.times.join(' · ') : 'No times set'}</Text>
-      <Text variant="caption" muted>{m.durationDays ? `For ${m.durationDays} days` : 'No end date'}</Text>
-    </Card>
-  );
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', padding: layout.screenPadding, paddingTop: space.xl }}>
         <Button kind="text" title="‹" onPress={() => router.replace(`/profile/${id}`)} />
         <Text variant="title" style={{ flex: 1 }}>Medicines</Text>
+        <Button kind="text" title="Doses" onPress={() => router.push(`/profile/${id}/doses`)} />
       </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: layout.screenPadding, paddingBottom: 80 }}>
-        <Text variant="caption" muted style={{ textTransform: 'uppercase', letterSpacing: 1 }}>Active ({active.length})</Text>
-        {active.length ? active.map((m) => <MedCard key={m.id} m={m} />) : <Text muted>No active medicines</Text>}
+        <Text variant="caption" muted style={{ textTransform: 'uppercase', letterSpacing: 1 }}>Current ({current.length})</Text>
+        {current.length ? current.map(card) : <Text muted>No current medicines</Text>}
         {past.length ? (
           <>
             <Text variant="caption" muted style={{ textTransform: 'uppercase', letterSpacing: 1, marginTop: space.lg }}>Past ({past.length})</Text>
-            {past.map((m) => <MedCard key={m.id} m={m} />)}
+            {past.map(card)}
           </>
         ) : null}
         <Disclaimer />

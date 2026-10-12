@@ -1,8 +1,8 @@
 // Native capability registry. The app imports from here, never from a concrete module,
 // so the real on-device implementations can be swapped in at startup (registerNative)
 // while tests and early development run against the stubs.
-import type { AlarmScheduler, Embedder, ForegroundService, LlmRunner, OcrEngine } from './types';
-import { StubAlarmScheduler, StubEmbedder, StubForegroundService, StubLlmRunner, StubOcrEngine } from './stubs';
+import type { AlarmScheduler, DocumentScanner, Embedder, ForegroundService, LlmRunner, OcrEngine } from './types';
+import { CameraFallbackScanner, StubAlarmScheduler, StubEmbedder, StubForegroundService, StubLlmRunner, StubOcrEngine } from './stubs';
 
 interface Native {
   llm: LlmRunner;
@@ -10,6 +10,7 @@ interface Native {
   embedder: Embedder;
   alarms: AlarmScheduler;
   foreground: ForegroundService;
+  scanner: DocumentScanner;
 }
 
 let current: Native = {
@@ -18,6 +19,7 @@ let current: Native = {
   embedder: new StubEmbedder(),
   alarms: new StubAlarmScheduler(),
   foreground: new StubForegroundService(),
+  scanner: new CameraFallbackScanner(),
 };
 
 /** Called once at app startup on-device to install the real modules. */
@@ -31,6 +33,7 @@ export const native = {
   get embedder() { return current.embedder; },
   get alarms() { return current.alarms; },
   get foreground() { return current.foreground; },
+  get scanner() { return current.scanner; },
 };
 
 export * from './types';

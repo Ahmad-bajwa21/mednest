@@ -99,13 +99,21 @@
       <li>Extracted medicines, doses, test results and dates.</li>
       <li>Reminders, dose logs, pattern notes and summaries.</li>
     </ul>
-    <p>The on-device database is encrypted, and document images are encrypted in the app's private storage. The encryption
-      keys are held in the device's secure hardware keystore.</p>
+    <p>In the Android app, the on-device database is encrypted and its key is held in the device's secure hardware
+      keystore. Document images are kept in the app's private storage; encrypting them at rest is being added.</p>
 
     <h2>4. How the AI works</h2>
     <p>MedNest uses an on-device AI model (downloaded once during setup) together with on-device text recognition. All
       processing happens locally. Your documents, questions and results are <strong>never</strong> sent to a cloud AI
       service, and we receive nothing about what the AI reads or answers.</p>
+
+    <p><strong>Symptom check.</strong> The symptom check is a rules-based assistant that runs on your device. It asks
+      follow-up questions and suggests a next step (for example, seeing a doctor today). It does not diagnose and does not
+      replace a doctor. Your answers are saved only to your own records on the device.</p>
+    <p><strong>Web version.</strong> The web version stores your records in this browser (localStorage) and document photos
+      in the browser's IndexedDB; this browser storage is not encrypted by MedNest. Photos are read inside your browser with an
+      open-source text reader (Tesseract.js); the reader's program and English language data are downloaded from a public
+      CDN the first time you scan, but your photos and records are never uploaded.</p>
 
     <h2>5. Permissions we ask for</h2>
     <ul>

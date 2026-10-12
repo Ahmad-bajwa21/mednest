@@ -10,7 +10,7 @@ const seed = {
     { id: D2, profileId: PID, type: 'Lab report', docDate: '2026-06-01', doctor: 'Dr. Khan' },
     { id: D3, profileId: PID, type: 'Prescription', docDate: '2026-09-01', doctor: 'Dr. Ali' },
   ],
-  medicines: [{ id: 'm1', profileId: PID, documentId: D3, name: 'Metformin', dose: '500 mg', times: ['Morning', 'Night'], durationDays: '30', startDate: '2026-09-01', active: true }],
+  medicines: [{ id: 'm1', profileId: PID, documentId: D3, name: 'Metformin', dose: '500 mg', times: ['Morning', 'Night'], durationDays: '', startDate: '2026-09-01', active: true }],
   results: [
     { id: 'r1', profileId: PID, documentId: D1, docDate: '2026-03-01', test: 'HbA1c', value: '6.5', unit: '%', rangeLow: '', rangeHigh: '5.7' },
     { id: 'r2', profileId: PID, documentId: D2, docDate: '2026-06-01', test: 'HbA1c', value: '6.8', unit: '%', rangeLow: '', rangeHigh: '5.7' },
@@ -19,12 +19,15 @@ const seed = {
 };
 
 // ---- stubs ----
+globalThis.__MEDNEST_TEST__ = true; // no reminder timer in tests
 const store = new Map();
 store.set('mednest.v1', JSON.stringify(seed));
 store.set('mednest.onboarded', '1');
 globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
 
 let lastHTML = '';
+// Any selector resolves to an inert element so screens can attach their handlers.
+const inert = () => ({ addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, classList: { add() {}, remove() {}, toggle() {} }, value: '', remove() {} });
 const elStub = () => ({
   set innerHTML(v) { lastHTML = v; }, get innerHTML() { return lastHTML; },
   querySelectorAll: () => [], querySelector: () => null,
@@ -32,7 +35,7 @@ const elStub = () => ({
 });
 const appEl = elStub();
 globalThis.document = {
-  querySelector: (s) => (s === '#app' ? appEl : null),
+  querySelector: (s) => (s === '#app' ? appEl : inert()),
   createElement: () => ({ click() {}, set href(v) {}, set download(v) {} }),
 };
 globalThis.window = { addEventListener: (ev, fn) => { if (ev === 'hashchange') globalThis.__hashchange = fn; }, scrollTo: () => {}, print: () => {}, __draft: null };
@@ -67,6 +70,12 @@ const routes = [
   [`#/profile/${PID}/summary`, 'summary'],
   [`#/profile/${PID}/share`, 'share'],
   [`#/profile/${PID}/doc/${D1}`, 'doc detail'],
+  [`#/profile/${PID}/history`, 'history'],
+  [`#/profile/${PID}/assistant`, 'assistant'],
+  [`#/profile/${PID}/doses`, 'doses'],
+  [`#/profile/${PID}/appointments`, 'appointments'],
+  [`#/profile/${PID}/medicine/m1`, 'medicine detail'],
+  [`#/profile/${PID}/review`, 'review (no draft)'],
 ];
 
 let pass = 0, fail = 0;
@@ -91,10 +100,19 @@ globalThis.__hashchange();
 checks.push(['overview shows rising HbA1c note', /HbA1c has risen across the last 3 readings \(6\.5, 6\.8, 7\.2\)/.test(lastHTML)]);
 checks.push(['overview shows out-of-range warn', /pill warn/.test(lastHTML)]);
 checks.push(['summary built with age', /\d+ years, F/.test(lastHTML)]);
-checks.push(['coming up shows Metformin times', /8:00, 21:00/.test(lastHTML)]);
+checks.push(["today's medicines shows Metformin doses", /8:00 AM · Metformin/.test(lastHTML) && /9:00 PM · Metformin/.test(lastHTML)]);
+checks.push(['v1 follow-up migrated to an upcoming appointment', /Upcoming appointments[\s\S]*15 Oct 2026|Upcoming appointments[\s\S]*2026/.test(lastHTML) && !/Nothing planned/.test(lastHTML)]);
+checks.push(['dashboard links to symptom check', /Check a symptom/.test(lastHTML)]);
 globalThis.location.hash = `#/profile/${PID}/doc/${D1}`;
 globalThis.__hashchange();
 checks.push(['doc detail "in simple words"', /Your HbA1c is 6\.5/.test(lastHTML)]);
+
+globalThis.location.hash = `#/profile/${PID}/history`;
+globalThis.__hashchange();
+checks.push(['history lists medicine start with provenance', /Started Metformin/.test(lastHTML) && /Entered by you/.test(lastHTML)]);
+globalThis.location.hash = `#/profile/${PID}/assistant`;
+globalThis.__hashchange();
+checks.push(['assistant greets and shows emergency number', /Tell me what is bothering you/.test(lastHTML) && /Call 1122/.test(lastHTML)]);
 
 console.log('\n--- content checks ---');
 for (const [label, ok] of checks) { console.log(`${ok ? '✅' : '❌'} ${label}`); ok ? pass++ : fail++; }

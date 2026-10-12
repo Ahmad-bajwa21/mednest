@@ -12,6 +12,7 @@ import { layout, radius, space } from '../../../src/design/tokens';
 
 interface Turn { role: 'user' | 'bot'; text: string; sources?: string[] }
 const SUGGESTED = ['Last sugar test?', 'Current medicines?', 'What changed this year?'];
+const SYMPTOM_HINT = 'Feeling unwell? Use “Check a symptom” for guided questions and next steps.';
 
 export default function Ask() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -23,7 +24,8 @@ export default function Ask() {
   const submit = (text: string) => {
     if (!text.trim() || !bundle) return;
     const res: AskAnswer | null = askRecords(bundle, text);
-    setLog((l) => [...l, { role: 'user', text }, { role: 'bot', text: res?.answer ?? '', sources: res?.sources }]);
+    const answer = res?.refusal ? `${res.answer}\n\n${SYMPTOM_HINT}` : res?.answer ?? '';
+    setLog((l) => [...l, { role: 'user', text }, { role: 'bot', text: answer, sources: res?.sources }]);
     setInput('');
   };
 
@@ -38,6 +40,7 @@ export default function Ask() {
         {log.length === 0 ? (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
             {SUGGESTED.map((q) => <Chip key={q} label={q} onPress={() => submit(q)} />)}
+            <Chip label="Check a symptom →" onPress={() => router.push(`/profile/${id}/assistant`)} />
           </View>
         ) : (
           log.map((t, i) => (

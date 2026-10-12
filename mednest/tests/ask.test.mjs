@@ -11,6 +11,7 @@ const seed = {
   medicines: [{ id: 'm1', profileId: PID, documentId: D3, name: 'Metformin', dose: '500 mg', times: ['Morning'], active: true }],
   results: [{ id: 'r1', profileId: PID, documentId: D1, docDate: '2026-09-10', test: 'HbA1c', value: '7.2', unit: '%', rangeHigh: '5.7' }],
 };
+globalThis.__MEDNEST_TEST__ = true;
 const store = new Map([['mednest.v1', JSON.stringify(seed)], ['mednest.onboarded', '1']]);
 globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
 const appEl = { set innerHTML(v) {}, querySelectorAll: () => [], querySelector: () => null, addEventListener() {} };

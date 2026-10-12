@@ -1,5 +1,6 @@
-// S7 — Profile overview. The always-on summary is always first (RULE). Shows active
-// medicines, latest results with trend, Things to notice (pattern notes) and Coming up.
+// S7 — Profile overview. The always-on summary is always first (RULE). Then: pending
+// confirmations, today's medicines, upcoming follow-ups, symptom check, recent
+// documents, latest results with trend, Things to notice and medical history.
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { useCallback, type ReactNode } from 'react';
 import { ScrollView, View, TouchableOpacity } from 'react-native';
@@ -11,7 +12,9 @@ import { layout, space } from '../../../src/design/tokens';
 import { buildSummary } from '../../../src/domain/summary';
 import { latestResults } from '../../../src/domain/trends';
 import { patternNotes } from '../../../src/domain/patterns';
-import { activeMedicines, SLOT_CLOCK } from '../../../src/domain/types';
+import { useCare } from '../../../src/features/useCare';
+import { pendingConfirmations, todaysDoses, upcomingAppointments } from '../../../src/domain/care';
+import { formatTime, localDateIso } from '../../../src/domain/schedule';
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
@@ -24,16 +27,23 @@ function SectionLabel({ children }: { children: ReactNode }) {
 export default function Overview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { bundle, loading, reload } = useBundle(id);
+  const care = useCare(id);
   const { c } = useTheme();
 
-  useFocusEffect(useCallback(() => { reload(); }, [reload]));
+  useFocusEffect(useCallback(() => { reload(); care.reload(); }, [reload, care.reload]));
 
   if (loading || !bundle) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
 
-  const meds = activeMedicines(bundle);
+  const now = new Date();
+  const today = localDateIso(now);
   const results = latestResults(bundle, 3);
   const notes = patternNotes(bundle);
-  const coming = meds.filter((m) => m.times.length).map((m) => ({ text: `${m.name} ${m.dose ?? ''}`.trim(), when: m.times.map((t) => SLOT_CLOCK[t]).filter(Boolean).join(', ') }));
+  const doses = care.data ? todaysDoses(care.data.medicines, care.data.doseLogs, now) : [];
+  const appts = care.data ? upcomingAppointments(care.data.appointments, today).slice(0, 3) : [];
+  const pending = care.data ? pendingConfirmations(care.data, today) : [];
+  const recentDocs = bundle.documents.slice().sort((a, z) => (z.docDate ?? '').localeCompare(a.docDate ?? '')).slice(0, 3);
+  const doseColour = (st: string) => (st === 'taken' ? c.ok : st === 'missed' || st === 'due' ? c.warn : c.textMuted);
+  const DOSE_LABEL: Record<string, string> = { upcoming: '', due: 'Due', taken: 'Taken', skipped: 'Skipped', missed: 'Not marked' };
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
@@ -53,9 +63,70 @@ export default function Overview() {
           </Text>
         </Card>
 
-        <SectionLabel>Active medicines ({meds.length})</SectionLabel>
-        <Card onPress={() => router.replace(`/profile/${id}/meds`)}>
-          <Text>{meds.length ? meds.slice(0, 3).map((m) => m.name).join(', ') : 'None'}</Text>
+        {pending.length ? (
+          <>
+            <SectionLabel>Pending confirmations ({pending.length})</SectionLabel>
+            <Card style={{ borderColor: c.warn }}>
+              {pending.slice(0, 4).map((p, i) => (
+                <TouchableOpacity
+                  key={p.id}
+                  onPress={() => router.push(p.kind === 'medicine' ? `/profile/${id}/medicine/${p.id}` : `/profile/${id}/appointments`)}
+                  style={{ marginTop: i ? space.md : 0 }}
+                >
+                  <Text>{p.title}</Text>
+                  <Text variant="caption" muted>{p.detail}</Text>
+                </TouchableOpacity>
+              ))}
+            </Card>
+          </>
+        ) : null}
+
+        <SectionLabel>Today's medicines</SectionLabel>
+        <Card onPress={() => router.push(`/profile/${id}/doses`)}>
+          {doses.length ? (
+            doses.slice(0, 6).map((d, i) => (
+              <View key={d.occ.key} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: i ? space.sm : 0 }}>
+                <Text style={{ flex: 1 }}>{formatTime(d.occ.time)} · {d.medicine.name}{d.medicine.dose ? ` ${d.medicine.dose}` : ''}</Text>
+                <Text variant="caption" color={doseColour(d.state)}>{DOSE_LABEL[d.state]}</Text>
+              </View>
+            ))
+          ) : (
+            <Text muted>No doses scheduled today.</Text>
+          )}
+        </Card>
+
+        <SectionLabel>Upcoming appointments</SectionLabel>
+        <Card onPress={() => router.push(`/profile/${id}/appointments`)}>
+          {appts.length ? (
+            appts.map((a, i) => (
+              <View key={a.id} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: i ? space.sm : 0 }}>
+                <Text style={{ flex: 1 }}>{[a.doctor, a.reason].filter(Boolean).join(' · ') || 'Follow-up'}</Text>
+                <Text variant="caption" muted>{a.date}{a.time ? ` ${a.time}` : ''}</Text>
+              </View>
+            ))
+          ) : (
+            <Text muted>Nothing planned.</Text>
+          )}
+        </Card>
+
+        <SectionLabel>Health assistant</SectionLabel>
+        <Card onPress={() => router.push(`/profile/${id}/assistant`)} style={{ borderColor: c.accent }}>
+          <Text variant="heading">Check a symptom</Text>
+          <Text muted>Answer a few questions and get guidance on what to do next. Not a diagnosis.</Text>
+        </Card>
+
+        <SectionLabel>Recent documents</SectionLabel>
+        <Card>
+          {recentDocs.length ? (
+            recentDocs.map((d, i) => (
+              <TouchableOpacity key={d.id} onPress={() => router.push(`/profile/${id}/doc/${d.id}`)} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: i ? space.sm : 0 }}>
+                <Text>{d.type}{d.doctor ? ` · ${d.doctor}` : ''}</Text>
+                <Text variant="caption" muted>{d.docDate ?? '—'}</Text>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <Text muted>No documents yet.</Text>
+          )}
         </Card>
 
         <SectionLabel>Latest results</SectionLabel>
@@ -88,20 +159,7 @@ export default function Overview() {
           )}
         </Card>
 
-        <SectionLabel>Coming up</SectionLabel>
-        <Card>
-          {coming.length ? (
-            coming.map((cu, i) => (
-              <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: i ? space.sm : 0 }}>
-                <Text>{cu.text}</Text>
-                <Text variant="caption" muted>{cu.when}</Text>
-              </View>
-            ))
-          ) : (
-            <Text muted>Nothing scheduled.</Text>
-          )}
-        </Card>
-
+        <Button kind="secondary" title="Medical history" onPress={() => router.push(`/profile/${id}/history`)} />
         <Button kind="secondary" title="Doctor summary" onPress={() => router.replace(`/profile/${id}/summary`)} />
         <Disclaimer />
       </ScrollView>

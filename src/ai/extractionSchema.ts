@@ -2,8 +2,8 @@
 // it against this schema and retries once on failure. Hand-rolled (no runtime dep) so
 // it is trivially unit-testable off-device.
 
-export type DocType = 'prescription' | 'lab_report' | 'scan_report' | 'bill' | 'other';
-export const DOC_TYPES: DocType[] = ['prescription', 'lab_report', 'scan_report', 'bill', 'other'];
+export type DocType = 'prescription' | 'lab_report' | 'scan_report' | 'discharge_summary' | 'bill' | 'other';
+export const DOC_TYPES: DocType[] = ['prescription', 'lab_report', 'scan_report', 'discharge_summary', 'bill', 'other'];
 
 export interface ExtractedMedicine {
   name: string | null;
