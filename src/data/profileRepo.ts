@@ -5,7 +5,7 @@ import * as Crypto from 'expo-crypto';
 import { getDb } from './db';
 import { jsonArray } from './json';
 import { deleteImages } from './files';
-import { profiles, documents, medicines, testResults, reminders, chunks, patternNotes, summaries, MAX_PROFILES, type ProfileRow, doseLogs, appointments, symptomEpisodes, chatSessions, auditLog } from './schema';
+import { profiles, documents, medicines, testResults, reminders, chunks, patternNotes, summaries, MAX_PROFILES, type ProfileRow, doseLogs, appointments, symptomEpisodes, chatSessions, auditLog, symptomUpdates, visitSummaries } from './schema';
 
 export class ProfileCapError extends Error {
   constructor() {
@@ -67,6 +67,8 @@ export async function deleteProfileCascade(id: string): Promise<void> {
   await db.delete(appointments).where(eq(appointments.profileId, id));
   await db.delete(symptomEpisodes).where(eq(symptomEpisodes.profileId, id));
   await db.delete(chatSessions).where(eq(chatSessions.profileId, id));
+  await db.delete(symptomUpdates).where(eq(symptomUpdates.profileId, id));
+  await db.delete(visitSummaries).where(eq(visitSummaries.profileId, id));
   await db.delete(auditLog).where(eq(auditLog.profileId, id));
   await db.delete(chunks).where(eq(chunks.profileId, id));
   await db.delete(patternNotes).where(eq(patternNotes.profileId, id));

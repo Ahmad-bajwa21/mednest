@@ -112,6 +112,7 @@ export default function Assistant() {
         {state.done ? (
           <View style={{ gap: space.sm }}>
             {savedId ? <Text variant="caption" muted style={{ textAlign: 'center' }}>Saved to {profile?.name ?? 'the'} history.</Text> : null}
+            <Button title="Prepare doctor visit summary" onPress={() => router.push(`/profile/${id}/visit`)} />
             <Button kind="secondary" title="Start a new check" onPress={restart} />
             <Button kind="text" title="See medical history" onPress={() => router.push(`/profile/${id}/history`)} />
           </View>

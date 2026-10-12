@@ -26,3 +26,4 @@ export { askCare } from '../domain/askCare';
 export { doseCheck } from '../ai/medicineInfo';
 export { scheduleIssues, sortedTimes } from '../domain/schedule';
 export { identifyMedicine } from '../ai/medicineInfo';
+export { buildVisitSummary, renderVisitSummaryText } from '../domain/visitSummary';

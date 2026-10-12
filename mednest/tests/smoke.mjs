@@ -11,6 +11,7 @@ const seed = {
     { id: D3, profileId: PID, type: 'Prescription', docDate: '2026-09-01', doctor: 'Dr. Ali' },
   ],
   medicines: [{ id: 'm1', profileId: PID, documentId: D3, name: 'Metformin', dose: '500 mg', times: ['Morning', 'Night'], durationDays: '', startDate: '2026-09-01', active: true }],
+  episodes: [{ id: 'e1', profileId: PID, protocolId: 'headache', complaint: 'Headache', disposition: 'urgent', createdAt: new Date(Date.now() - 3600e3).toISOString(), engineVersion: 't', answers: { severity: { kind: 'scale', value: 8 }, associated: { kind: 'multi', values: ['fever'], labels: ['Fever'] }, neck: { kind: 'yesno', value: false } } }],
   results: [
     { id: 'r1', profileId: PID, documentId: D1, docDate: '2026-03-01', test: 'HbA1c', value: '6.5', unit: '%', rangeLow: '', rangeHigh: '5.7' },
     { id: 'r2', profileId: PID, documentId: D2, docDate: '2026-06-01', test: 'HbA1c', value: '6.8', unit: '%', rangeLow: '', rangeHigh: '5.7' },
@@ -76,6 +77,7 @@ const routes = [
   [`#/profile/${PID}/appointments`, 'appointments'],
   [`#/profile/${PID}/medicine/m1`, 'medicine detail'],
   [`#/profile/${PID}/review`, 'review (no draft)'],
+  [`#/profile/${PID}/visit`, 'visit summary'],
 ];
 
 let pass = 0, fail = 0;
@@ -113,6 +115,10 @@ checks.push(['history lists medicine start with provenance', /Started Metformin/
 globalThis.location.hash = `#/profile/${PID}/assistant`;
 globalThis.__hashchange();
 checks.push(['assistant greets and shows emergency number', /Tell me what is bothering you/.test(lastHTML) && /Call 1122/.test(lastHTML)]);
+
+globalThis.location.hash = `#/profile/${PID}/visit`;
+globalThis.__hashchange();
+checks.push(['visit summary: timeline, urgent banner, records', /Seeing a doctor today was advised/.test(lastHTML) && /severity 8\/10; with: Fever/.test(lastHTML) && /Said no to/.test(lastHTML) && /penicillin/.test(lastHTML)]);
 
 console.log('\n--- content checks ---');
 for (const [label, ok] of checks) { console.log(`${ok ? '✅' : '❌'} ${label}`); ok ? pass++ : fail++; }

@@ -159,6 +159,7 @@ export default function Overview() {
           )}
         </Card>
 
+        <Button kind="secondary" title="Prepare doctor visit summary" onPress={() => router.push(`/profile/${id}/visit`)} />
         <Button kind="secondary" title="Medical history" onPress={() => router.push(`/profile/${id}/history`)} />
         <Button kind="secondary" title="Doctor summary" onPress={() => router.replace(`/profile/${id}/summary`)} />
         <Disclaimer />

@@ -60,7 +60,17 @@ const V1 = [
   `CREATE INDEX IF NOT EXISTS idx_audit_profile ON audit_log(profile_id, at)`,
 ];
 
-export const MIGRATIONS: string[][] = [V1];
+// v2: doctor visit summary (patient updates/corrections + saved summaries).
+const V2 = [
+  `CREATE TABLE IF NOT EXISTS symptom_updates (
+    id TEXT PRIMARY KEY NOT NULL, profile_id TEXT NOT NULL, at TEXT NOT NULL, complaint TEXT NOT NULL,
+    severity INTEGER, new_symptoms TEXT, note TEXT, corrects_id TEXT)`,
+  `CREATE TABLE IF NOT EXISTS visit_summaries (
+    id TEXT PRIMARY KEY NOT NULL, profile_id TEXT NOT NULL, created_at TEXT NOT NULL, text TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_updates_profile ON symptom_updates(profile_id, at)`,
+];
+
+export const MIGRATIONS: string[][] = [V1, V2];
 
 export async function migrate(db: SqlRunner): Promise<number> {
   const res = await db.execute('PRAGMA user_version');

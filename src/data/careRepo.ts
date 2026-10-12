@@ -11,10 +11,14 @@ import {
   doseLogs,
   medicines,
   symptomEpisodes,
+  symptomUpdates,
+  visitSummaries,
   type AppointmentRow,
   type DoseLogRow,
   type MedicineRow,
   type SymptomEpisodeRow,
+  type SymptomUpdateRow,
+  type VisitSummaryRow,
 } from './schema';
 import type { MedStatus, SchedulableMedicine, DoseLogStatus } from '../domain/schedule';
 import type { TriageState, Disposition } from '../ai/triage/engine';
@@ -203,4 +207,33 @@ export async function saveAssessment(profileId: string, state: TriageState, summ
   await db.insert(chatSessions).values({ id: Crypto.randomUUID(), profileId, episodeId: id, transcript: JSON.stringify(state.transcript), createdAt: now });
   await audit(profileId, 'episode', id, 'create', { note: `${complaint} → ${state.disposition ?? 'incomplete'}` });
   return id;
+}
+
+/* ============================== doctor visit summary ============================== */
+
+export async function listSymptomUpdates(profileId: string): Promise<SymptomUpdateRow[]> {
+  const db = await getDb();
+  return db.select().from(symptomUpdates).where(eq(symptomUpdates.profileId, profileId));
+}
+
+/** Append a patient update or correction (never edits earlier entries). */
+export async function addSymptomUpdate(input: Omit<SymptomUpdateRow, 'id' | 'at'>): Promise<string> {
+  const db = await getDb();
+  const id = Crypto.randomUUID();
+  await db.insert(symptomUpdates).values({ ...input, id, at: new Date().toISOString() });
+  await audit(input.profileId, 'episode', id, 'create', { note: input.correctsId ? 'correction' : 'symptom update' });
+  return id;
+}
+
+export async function saveVisitSummary(profileId: string, text: string): Promise<string> {
+  const db = await getDb();
+  const id = Crypto.randomUUID();
+  await db.insert(visitSummaries).values({ id, profileId, createdAt: new Date().toISOString(), text });
+  await audit(profileId, 'document', id, 'create', { note: 'doctor visit summary saved' });
+  return id;
+}
+
+export async function listVisitSummaries(profileId: string): Promise<VisitSummaryRow[]> {
+  const db = await getDb();
+  return db.select().from(visitSummaries).where(eq(visitSummaries.profileId, profileId));
 }

@@ -57,7 +57,7 @@ function load() {
 }
 // v1 -> v2: medicine status/provenance, dose logs, follow-ups, symptom checks, audit.
 function migrate(db) {
-  for (const k of ['profiles', 'documents', 'medicines', 'results', 'doseLogs', 'appointments', 'episodes', 'chats', 'audit', 'snoozes']) db[k] ||= [];
+  for (const k of ['profiles', 'documents', 'medicines', 'results', 'doseLogs', 'appointments', 'episodes', 'chats', 'audit', 'snoozes', 'symptomUpdates', 'visitSummaries']) db[k] ||= [];
   if ((db.version || 1) < 2) {
     for (const m of db.medicines) {
       m.status ||= m.active === false ? 'discontinued' : 'active';
@@ -349,8 +349,9 @@ function screenOverview(id) {
       <h2 class="sec">Recent documents</h2><div class="card">${recentHtml}</div>
       <h2 class="sec">Latest results</h2><div class="card">${resHtml}</div>
       <h2 class="sec">Things to notice (${notes.length})</h2><div class="card">${notesHtml}</div>
+      <button class="btn secondary" data-go="#/profile/${id}/visit">Prepare doctor visit summary</button>
       <button class="btn secondary" data-go="#/profile/${id}/history">Medical history</button>
-      <button class="btn secondary" data-go="#/profile/${id}/summary">Doctor summary</button>
+      <button class="btn secondary" data-go="#/profile/${id}/summary">Records summary for doctor</button>
       <div class="disclaimer">${DISCLAIMER}</div>
     </div>
     <button class="fab" data-go="#/profile/${id}/add" aria-label="Add document">＋</button>${tabsBar(id, 'overview')}`);
@@ -676,7 +677,7 @@ function screenHistory(id) {
     ${topbar('#/profile/' + id, 'Medical history')}
     <div class="screen">
       ${p.allergies ? `<div class="card" style="border-color:var(--warn)"><div class="caption" style="color:var(--warn)">Allergies</div>${esc(p.allergies)}</div>` : ''}
-      <button class="btn secondary" data-go="#/profile/${id}/timeline">All documents</button>
+      <div class="row" style="gap:8px"><button class="btn secondary" data-go="#/profile/${id}/visit">Doctor visit summary</button><button class="btn secondary" data-go="#/profile/${id}/timeline">All documents</button></div>
       ${body}
       <div class="disclaimer">${DISCLAIMER}</div>
     </div>${tabsBar(id, 'history')}`);
@@ -730,7 +731,7 @@ function renderAssistant(id) {
       ${t.bubbles.map(bubble).join('')}
       ${t.busy ? '<div class="caption">…</div>' : ''}
       ${quick}
-      ${t.state.done ? `${t.savedId ? `<div class="caption" style="text-align:center;margin-top:12px">Saved to ${esc(p.name)}’s medical history.</div>` : ''}<button class="btn secondary" id="tri-new">Start a new check</button><button class="textbtn" data-go="#/profile/${id}/history" style="display:block;margin:4px auto">See medical history</button>` : `<div class="row" style="gap:8px;position:sticky;bottom:72px;margin-top:12px"><input id="tri-input" placeholder="Type your answer…" class="grow" autocomplete="off"/><button class="iconbtn" id="tri-send" style="background:var(--accent);color:var(--onAccent)">➤</button></div>`}
+      ${t.state.done ? `${t.savedId ? `<div class="caption" style="text-align:center;margin-top:12px">Saved to ${esc(p.name)}’s medical history.</div>` : ''}<button class="btn primary" data-go="#/profile/${id}/visit">Prepare doctor visit summary</button><button class="btn secondary" id="tri-new">Start a new check</button><button class="textbtn" data-go="#/profile/${id}/history" style="display:block;margin:4px auto">See medical history</button>` : `<div class="row" style="gap:8px;position:sticky;bottom:72px;margin-top:12px"><input id="tri-input" placeholder="Type your answer…" class="grow" autocomplete="off"/><button class="iconbtn" id="tri-send" style="background:var(--accent);color:var(--onAccent)">➤</button></div>`}
       <div class="disclaimer">${esc(core.TRIAGE_DISCLAIMER)}</div>
     </div>${tabsBar(id, 'assistant')}`);
   const send = async (text) => {
@@ -962,6 +963,136 @@ function renderAsk(id) {
     </div>${tabsBar(id, 'ask')}`);
 }
 
+/* ============================== doctor visit summary ============================== */
+// Chronological summary of what the patient reported (symptom checks + updates +
+// corrections) plus labelled records, to review and show the doctor. Built by code from
+// saved entries only (src/domain/visitSummary.ts) — nothing invented, nothing overwritten.
+const VISIT_PERIODS = [['7', 'Last 7 days'], ['14', 'Last 14 days'], ['30', 'Last 30 days'], ['all', 'Everything']];
+const SOURCE_PILL = { symptom_check: ['Patient-reported', ''], patient_update: ['Patient update', ''], correction: ['Correction', 'warn'], mednest_advice: ['MedNest advice', 'ok'] };
+
+function visitData(id) {
+  const p = getProfile(id);
+  const period = window.__visitPeriod || '14';
+  const since = period === 'all' ? null : new Date(Date.now() - (+period) * 86400000).toISOString();
+  const profile = { name: p.name, ageYears: calcAge(p.birthYear), sex: p.sex, allergies: p.allergies };
+  const summary = core.buildVisitSummary({
+    profile,
+    episodes: byProfile(DB.episodes, id),
+    updates: byProfile(DB.symptomUpdates, id),
+    medicines: byProfile(DB.medicines, id).map((m) => ({ ...m, status: medStatus(m) })),
+    documents: byProfile(DB.documents, id),
+    since,
+    now: new Date(),
+  });
+  return { summary, profile, text: core.renderVisitSummaryText(summary, profile) };
+}
+
+function screenVisitSummary(id) {
+  const { summary: s, text } = visitData(id);
+  const period = window.__visitPeriod || '14';
+  const complaints = [...new Set([...byProfile(DB.episodes, id).map((e) => e.complaint), ...byProfile(DB.symptomUpdates, id).map((u) => u.complaint)])];
+  const saved = byProfile(DB.visitSummaries, id).slice().reverse();
+  const sevText = (sev) => (!sev.length ? 'not reported' : sev.map((x) => `${x.value}/10 (${new Date(x.at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})`).join(' → '));
+  const urgent = s.urgent ? `<div class="card bubble-emergency"><div class="name" style="color:var(--danger)">${s.urgent.disposition === 'emergency' ? 'Emergency care was advised' : 'Seeing a doctor today was advised'}</div><div class="list-sub">Your symptom check on ${fmtDate(s.urgent.at.slice(0, 10))} for ${esc(s.urgent.complaint.toLowerCase())} advised ${s.urgent.disposition === 'emergency' ? 'emergency care' : 'seeing a doctor the same day'}. Don’t wait for a planned appointment.</div>${s.urgent.disposition === 'emergency' ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}</div>` : '';
+  const timeline = s.timeline.map((t) => { const [label, cls] = SOURCE_PILL[t.source]; return `<div class="tl-item"><div class="tl-time">${new Date(t.at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div><div class="tl-body">${esc(t.text)} <span class="pill ${cls}">${label}</span></div></div>`; }).join('');
+  const blocks = s.complaints.map((c) => `
+    <div class="card">
+      <div class="name">${esc(c.complaint)}</div>
+      <dl class="facts">
+        <dt>Onset</dt><dd>${esc(c.onset || 'Not reported')}</dd>
+        <dt>Severity</dt><dd>${esc(sevText(c.severities))}</dd>
+        <dt>Reported</dt><dd>${esc(c.positives.join('; ') || 'Nothing beyond the main complaint')}</dd>
+        ${c.negatives.length ? `<dt>Said no to</dt><dd>${esc(c.negatives.join('; '))}</dd>` : ''}
+        <dt>Took for it</dt><dd>${esc(c.remedies.join('; ') || 'None reported')}</dd>
+        <dt>Happened before</dt><dd>${esc(c.hadBefore || 'Not reported')}</dd>
+        ${c.latestAdvice ? `<dt>MedNest advice</dt><dd>${esc(c.latestAdvice)}</dd>` : ''}
+      </dl>
+      ${c.toClarify.length ? `<div class="caption warn-text">Still to clarify: ${esc(c.toClarify.join('; '))}</div>` : ''}
+    </div>`).join('');
+  render(`
+    ${topbar('#/profile/' + id, 'Doctor visit summary')}
+    <div class="screen">
+      ${urgent}
+      <div class="caption">Built from what you reported in MedNest and your saved records. Review it, correct anything wrong, then show or send it to your doctor. It is not a diagnosis.</div>
+      <div class="chips" style="margin-top:10px">${VISIT_PERIODS.map(([v, l]) => `<button class="chip ${period === v ? 'sel' : ''}" data-period="${v}">${l}</button>`).join('')}</div>
+      ${s.empty ? `<div class="empty"><div class="ico">🩺</div><p>No symptoms reported in this period.</p><button class="btn primary" data-go="#/profile/${id}/assistant">Check a symptom</button></div>` : `
+      <h2 class="sec">Timeline</h2><div class="card">${timeline}</div>
+      <h2 class="sec">Summary</h2>${blocks}`}
+      <h2 class="sec">Records in MedNest</h2>
+      <div class="card"><dl class="facts">
+        <dt>Allergies</dt><dd>${esc(s.allergies || 'None recorded')}</dd>
+        <dt>Medicines</dt><dd>${s.medicines.length ? s.medicines.map(esc).join('<br>') : 'None recorded'}</dd>
+        <dt>Diagnoses written</dt><dd>${s.diagnoses.length ? s.diagnoses.map(esc).join('<br>') : 'None recorded'}</dd>
+      </dl></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <button class="btn primary" id="v-share" style="flex:1 1 140px">Share</button>
+        <button class="btn secondary" id="v-copy" style="flex:1 1 140px">Copy</button>
+        <button class="btn secondary" id="v-download" style="flex:1 1 140px">Download</button>
+        <button class="btn secondary" id="v-print" style="flex:1 1 140px">Print / PDF</button>
+      </div>
+      <button class="btn secondary" id="v-save">Save to medical records</button>
+      <details class="card" ${window.__visitOpen ? 'open' : ''} id="v-update-box"><summary>Add an update or correct something</summary>
+        <div class="caption" style="margin-top:6px">Updates are added with today’s date and time. Corrections are kept next to the original entry — nothing is deleted.</div>
+        <label class="label">Which problem?</label>
+        <select id="u-complaint">${complaints.map((c) => `<option>${esc(c)}</option>`).join('')}<option value="__new">Something new…</option></select>
+        <input id="u-new" placeholder="Name of the new problem" style="margin-top:8px;display:${complaints.length ? 'none' : 'block'}" />
+        <label class="label">How bad is it now? (0–10, optional)</label><input id="u-sev" inputmode="numeric" placeholder="e.g. 6" />
+        <label class="label">New symptoms (optional)</label><input id="u-sym" placeholder="e.g. fever since this morning" />
+        <label class="label">Note (optional)</label><input id="u-note" placeholder="e.g. took paracetamol at 2 pm" />
+        <label class="row" style="gap:10px;margin-top:12px;cursor:pointer"><input type="checkbox" id="u-corr" style="width:auto"/> This corrects an earlier entry</label>
+        <button class="btn primary" id="u-save">Add to timeline</button>
+      </details>
+      ${saved.length ? `<h2 class="sec">Saved summaries</h2>${saved.map((v) => `<details class="card"><summary>${fmtDate(v.createdAt.slice(0, 10))} · ${new Date(v.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</summary><pre class="ocr">${esc(v.text)}</pre></details>`).join('')}` : ''}
+      <pre class="print-only">${esc(text)}</pre>
+    </div>`);
+  app.querySelectorAll('[data-period]').forEach((b) => b.addEventListener('click', () => { window.__visitPeriod = b.dataset.period; screenVisitSummary(id); }));
+  $('#u-complaint')?.addEventListener('change', (e) => { $('#u-new').style.display = e.target.value === '__new' ? 'block' : 'none'; });
+  $('#v-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(text); flash('Summary copied.'); } catch { flash('Copy is not available here — use Download instead.'); } });
+  $('#v-download')?.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    a.download = `mednest-visit-summary-${todayISO()}.txt`;
+    a.click();
+  });
+  $('#v-share')?.addEventListener('click', async () => {
+    if (navigator.share) { try { await navigator.share({ title: 'Doctor visit summary', text }); } catch (_) {} }
+    else { try { await navigator.clipboard.writeText(text); flash('Sharing isn’t available in this browser, so the summary was copied instead.'); } catch { flash('Use Download or Print to share the summary.'); } }
+  });
+  $('#v-save')?.addEventListener('click', () => {
+    const v = { id: uid(), profileId: id, createdAt: nowIso(), period, text };
+    DB.visitSummaries.push(v);
+    audit(id, 'document', v.id, 'create', { note: 'doctor visit summary saved' });
+    save(); flash('Saved to medical records.'); screenVisitSummary(id);
+  });
+  $('#u-save')?.addEventListener('click', () => {
+    const sel = $('#u-complaint').value;
+    const complaint = sel === '__new' || !sel ? $('#u-new').value.trim() : sel;
+    if (!complaint) return flash('Please name the problem.');
+    const sevRaw = $('#u-sev').value.trim();
+    const severity = sevRaw === '' ? null : parseInt(sevRaw, 10);
+    if (severity !== null && (isNaN(severity) || severity < 0 || severity > 10)) return flash('Severity must be a number from 0 to 10.');
+    const newSymptoms = $('#u-sym').value.trim() || null;
+    const note = $('#u-note').value.trim() || null;
+    if (severity === null && !newSymptoms && !note) return flash('Add a severity, new symptoms or a note.');
+    // New warning signs in an update get the emergency message straight away.
+    const flags = core.detectRedFlags(`${newSymptoms || ''} ${note || ''}`);
+    const lastEp = byProfile(DB.episodes, id).filter((e) => e.complaint === complaint).pop();
+    const u = { id: uid(), profileId: id, at: nowIso(), complaint, severity, newSymptoms, note, correctsId: $('#u-corr').checked ? lastEp?.id || 'earlier' : null };
+    DB.symptomUpdates.push(u);
+    audit(id, 'episode', u.id, 'create', { note: u.correctsId ? 'correction' : 'symptom update' });
+    save();
+    window.__visitOpen = false;
+    if (flags[0]?.level === 'emergency') flash(flags.some((f) => f.id === 'self_harm') ? core.SELF_HARM_MESSAGE : core.EMERGENCY_MESSAGE);
+    else if (severity !== null && severity >= 8) flash('Your symptoms sound worse. Please run a new symptom check now (the Check tab) so MedNest can tell you how soon to get care — don’t wait for your appointment.');
+    screenVisitSummary(id);
+  });
+  $('#v-print')?.addEventListener('click', () => {
+    document.body.classList.add('print-visit');
+    window.print();
+    setTimeout(() => document.body.classList.remove('print-visit'), 500);
+  }, { once: true });
+}
+
 /* ============================== doctor summary (S15) ============================== */
 function screenSummary(id) {
   const p = getProfile(id);
@@ -1127,7 +1258,7 @@ function saveProfile(d) {
   save();
   go(d.id ? '#/profile/' + d.id : '#/');
 }
-const PROFILE_ARRAYS = ['documents', 'medicines', 'results', 'doseLogs', 'appointments', 'episodes', 'chats', 'audit'];
+const PROFILE_ARRAYS = ['documents', 'medicines', 'results', 'doseLogs', 'appointments', 'episodes', 'chats', 'audit', 'symptomUpdates', 'visitSummaries'];
 function deleteProfile(id) {
   const p = getProfile(id);
   const typed = prompt(`This removes ALL documents, medicines, reminders and symptom checks for "${p.name}" from this browser. This cannot be undone.\n\nType the profile name to confirm:`);
@@ -1355,6 +1486,7 @@ function route() {
       case 'assistant': return screenAssistant(id);
       case 'ask': return screenAsk(id);
       case 'summary': return screenSummary(id);
+      case 'visit': return screenVisitSummary(id);
       case 'share': return screenShare(id);
       case 'doc': return screenDocDetail(id, parts[3]);
     }

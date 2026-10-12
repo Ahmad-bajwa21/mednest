@@ -197,3 +197,27 @@ export type ChatSessionRow = typeof chatSessions.$inferSelect;
 export type AuditRow = typeof auditLog.$inferSelect;
 
 export const MAX_PROFILES = 4; // spec RULE — enforced in the repository layer
+
+// Patient updates and corrections for the doctor visit summary. Append-only: a
+// correction points at the entry it corrects; the original is never changed.
+export const symptomUpdates = sqliteTable('symptom_updates', {
+  id: text('id').primaryKey(),
+  profileId: text('profile_id').notNull(),
+  at: text('at').notNull(),
+  complaint: text('complaint').notNull(),
+  severity: integer('severity'),
+  newSymptoms: text('new_symptoms'),
+  note: text('note'),
+  correctsId: text('corrects_id'),
+});
+
+// Finalised doctor visit summaries the patient chose to keep.
+export const visitSummaries = sqliteTable('visit_summaries', {
+  id: text('id').primaryKey(),
+  profileId: text('profile_id').notNull(),
+  createdAt: text('created_at').notNull(),
+  text: text('text').notNull(),
+});
+
+export type SymptomUpdateRow = typeof symptomUpdates.$inferSelect;
+export type VisitSummaryRow = typeof visitSummaries.$inferSelect;

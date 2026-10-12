@@ -1533,12 +1533,12 @@ function doseOccurrences(m, fromDate, toDate) {
   const end = endTreat && endTreat < toDate ? endTreat : toDate;
   const times = [...new Set(m.times.map(resolveTime).filter((t) => !!t))].sort();
   const out = [];
-  for (let day = start; day <= end; day = addDaysLocal(day, 1)) {
+  for (let day2 = start; day2 <= end; day2 = addDaysLocal(day2, 1)) {
     for (const time of times) {
-      const d = parseLocalDate(day);
+      const d = parseLocalDate(day2);
       const [h, min] = time.split(":").map(Number);
       d.setHours(h, min, 0, 0);
-      out.push({ key: doseKey(m.id, day, time), medicineId: m.id, date: day, time, at: d.getTime() });
+      out.push({ key: doseKey(m.id, day2, time), medicineId: m.id, date: day2, time, at: d.getTime() });
     }
   }
   return out;
@@ -1679,11 +1679,11 @@ function parseFollowUp(text) {
 }
 function addMonthsLocal(isoDate, n) {
   const d = parseLocalDate(isoDate);
-  const day = d.getDate();
+  const day2 = d.getDate();
   d.setDate(1);
   d.setMonth(d.getMonth() + n);
   const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  d.setDate(Math.min(day, last));
+  d.setDate(Math.min(day2, last));
   return localDateIso(d);
 }
 function proposeFollowUp(text, docDate, docDateConfirmed = true) {
@@ -1723,16 +1723,16 @@ function proposeFollowUp(text, docDate, docDateConfirmed = true) {
 function appointmentAlarms(a, now, opts = {}) {
   if (a.status !== "planned")
     return [];
-  const day = parseLocalDate(a.date);
-  if (!day)
+  const day2 = parseLocalDate(a.date);
+  if (!day2)
     return [];
   const who = a.doctor ? ` with ${a.doctor}` : "";
   const why = a.reason ? ` \u2014 ${a.reason}` : "";
   const title2 = opts.profileName ? `Follow-up \xB7 ${opts.profileName}` : "Doctor follow-up";
-  const before = new Date(day);
+  const before = new Date(day2);
   before.setDate(before.getDate() - 1);
   before.setHours(18, 0, 0, 0);
-  const sameDay = new Date(day);
+  const sameDay = new Date(day2);
   if (a.time && /^\d{2}:\d{2}$/.test(a.time)) {
     const [h, m] = a.time.split(":").map(Number);
     sameDay.setHours(h - 2, m, 0, 0);
@@ -2535,6 +2535,222 @@ ${lines.join("\n")}`;
     suggestions: SUGGEST
   };
 }
+
+// src/domain/visitSummary.ts
+var ADVICE2 = {
+  emergency: "emergency care advised",
+  urgent: "advised to see a doctor the same day",
+  gp: "advised to see a GP within a few days",
+  self_care: "advised to watch at home",
+  insufficient: "not enough information for advice"
+};
+var ts = (iso2) => {
+  const d = new Date(iso2);
+  return isNaN(d.getTime()) ? iso2 : d.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+};
+var day = (d) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+function slotLabel(protocolId, slotId) {
+  const p = PROTOCOLS.find((x) => x.id === protocolId);
+  return p?.slots.find((s) => s.id === slotId)?.label ?? slotId;
+}
+function facts(e) {
+  const a = e.answers ?? {};
+  const positives = [];
+  const negatives = [];
+  const unknown = [];
+  let severity2 = null;
+  let onset2 = null;
+  let remedies2 = null;
+  let hadBefore = null;
+  for (const [id, v] of Object.entries(a)) {
+    const label = slotLabel(e.protocolId, id);
+    if (v.kind === "skipped")
+      unknown.push(label);
+    else if (v.kind === "scale")
+      severity2 = v.value;
+    else if (v.kind === "duration") {
+      const start = new Date(new Date(e.createdAt).getTime() - v.hours * 36e5);
+      onset2 = v.hours < 24 ? `${v.text} before this report (patient\u2019s estimate)` : `about ${v.text} before this report \u2014 around ${day(start)} (patient\u2019s estimate)`;
+      if (v.text === "today" || v.text.startsWith("since"))
+        onset2 = `${v.text} (patient\u2019s words), reported ${ts(e.createdAt)}`;
+    } else if (v.kind === "multi") {
+      const real = v.labels.filter((l) => l !== "None of these");
+      if (real.length)
+        positives.push(...real);
+      else
+        negatives.push(`${label}: none of the listed symptoms`);
+    } else if (v.kind === "yesno") {
+      if (id === "previous")
+        hadBefore = v.value ? "yes" : "no";
+      else
+        (v.value ? positives : negatives).push(label);
+    } else if (v.kind === "choice")
+      positives.push(`${label}: ${v.label}`);
+    else if (v.kind === "text") {
+      if (id === "remedies")
+        remedies2 = /^(none|no|nothing|nahi)\b/i.test(v.value) ? null : v.value;
+      else
+        positives.push(`${label}: \u201C${v.value}\u201D`);
+    }
+  }
+  return { positives, negatives, unknown, severity: severity2, onset: onset2, remedies: remedies2, hadBefore };
+}
+var norm = (s) => s.trim().toLowerCase();
+function buildVisitSummary(input) {
+  const since = input.since ?? null;
+  const inWindow = (iso2) => !since || iso2 >= since;
+  const episodes = input.episodes.filter((e) => inWindow(e.createdAt)).sort((a, z) => a.createdAt.localeCompare(z.createdAt));
+  const updates = input.updates.filter((u) => inWindow(u.at)).sort((a, z) => a.at.localeCompare(z.at));
+  const timeline = [];
+  const byComplaint = /* @__PURE__ */ new Map();
+  const get = (complaint, at) => {
+    const key = norm(complaint);
+    let c = byComplaint.get(key);
+    if (!c) {
+      c = { complaint, firstReported: at, lastReported: at, onset: null, severities: [], positives: [], negatives: [], remedies: [], hadBefore: null, toClarify: [], latestAdvice: null };
+      byComplaint.set(key, c);
+    }
+    c.lastReported = at > c.lastReported ? at : c.lastReported;
+    return c;
+  };
+  for (const e of episodes) {
+    const f = facts(e);
+    const c = get(e.complaint, e.createdAt);
+    const seenBefore = new Set(c.positives);
+    const parts = [`Reported ${e.complaint.toLowerCase()}`];
+    if (f.severity !== null)
+      parts.push(`severity ${f.severity}/10`);
+    if (f.onset)
+      parts.push(`started ${f.onset}`);
+    const newPos = f.positives.filter((p) => !seenBefore.has(p));
+    if (newPos.length)
+      parts.push(`${c.positives.length ? "new: " : "with: "}${newPos.join(", ")}`);
+    if (f.negatives.length)
+      parts.push(`no ${f.negatives.map((n) => n.toLowerCase()).join(", no ")}`);
+    if (f.remedies)
+      parts.push(`had taken: ${f.remedies}`);
+    timeline.push({ at: e.createdAt, text: parts.join("; ") + ".", source: "symptom_check", refId: e.id });
+    if (e.disposition)
+      timeline.push({ at: e.createdAt, text: `MedNest symptom check: ${ADVICE2[e.disposition] ?? e.disposition} (rules-based, not a diagnosis).`, source: "mednest_advice", refId: e.id });
+    if (!c.onset && f.onset)
+      c.onset = f.onset;
+    if (f.severity !== null)
+      c.severities.push({ at: e.createdAt, value: f.severity });
+    c.positives.push(...newPos);
+    for (const n of f.negatives)
+      if (!c.negatives.includes(n) && !c.positives.includes(n))
+        c.negatives.push(n);
+    if (f.remedies && !c.remedies.includes(f.remedies))
+      c.remedies.push(f.remedies);
+    if (f.hadBefore)
+      c.hadBefore = f.hadBefore;
+    for (const u of f.unknown)
+      if (!c.toClarify.includes(`Not answered: ${u.toLowerCase()}`))
+        c.toClarify.push(`Not answered: ${u.toLowerCase()}`);
+    if (e.disposition)
+      c.latestAdvice = ADVICE2[e.disposition] ?? e.disposition;
+  }
+  for (const u of updates) {
+    const c = get(u.complaint, u.at);
+    const bits = [];
+    if (u.severity !== null && u.severity !== void 0) {
+      bits.push(`severity ${u.severity}/10`);
+      c.severities.push({ at: u.at, value: u.severity });
+    }
+    if (u.newSymptoms?.trim()) {
+      bits.push(`new symptoms: ${u.newSymptoms.trim()}`);
+      c.positives.push(`${u.newSymptoms.trim()} (reported ${ts(u.at)})`);
+    }
+    if (u.note?.trim())
+      bits.push(`note: \u201C${u.note.trim()}\u201D`);
+    if (!bits.length)
+      continue;
+    timeline.push({
+      at: u.at,
+      text: u.correctsId ? `Correction by patient (the earlier entry is kept): ${bits.join("; ")}.` : `Patient update on ${u.complaint.toLowerCase()}: ${bits.join("; ")}.`,
+      source: u.correctsId ? "correction" : "patient_update",
+      refId: u.id
+    });
+  }
+  const complaints = [...byComplaint.values()];
+  for (const c of complaints) {
+    c.severities.sort((a, z) => a.at.localeCompare(z.at));
+    if (!c.onset)
+      c.toClarify.push("When it started was not reported");
+    if (!c.severities.length)
+      c.toClarify.push("Severity was not reported");
+    if (c.hadBefore === null)
+      c.toClarify.push("Whether this has happened before was not reported");
+  }
+  const recent = [...episodes].reverse().find((e) => (e.disposition === "emergency" || e.disposition === "urgent") && input.now.getTime() - new Date(e.createdAt).getTime() < 48 * 36e5);
+  return {
+    generatedAt: input.now.toISOString(),
+    since,
+    urgent: recent ? { disposition: recent.disposition, at: recent.createdAt, complaint: recent.complaint } : null,
+    timeline: timeline.sort((a, z) => a.at.localeCompare(z.at)),
+    complaints,
+    medicines: input.medicines.filter((m) => !m.status || ["active", "paused", "pending"].includes(m.status)).map((m) => `${m.name}${m.dose ? " " + m.dose : ""}${m.status === "paused" ? " (paused)" : ""} \u2014 ${m.source === "document_confirmed" ? "from a prescription, confirmed by the patient" : "entered by the patient"}`),
+    allergies: input.profile.allergies?.trim() || null,
+    diagnoses: input.documents.filter((x) => x.diagnosisWritten).map((x) => `${x.diagnosisWritten} \u2014 written by ${x.doctor ?? "a doctor"} on a ${x.type.toLowerCase()}${x.docDate ? ` (${x.docDate})` : ""}`),
+    empty: !timeline.length
+  };
+}
+function trend(sev) {
+  if (!sev.length)
+    return "not reported";
+  if (sev.length === 1)
+    return `${sev[0].value}/10 (${ts(sev[0].at)})`;
+  const first = sev[0], last = sev[sev.length - 1];
+  const dir = last.value > first.value ? "worse" : last.value < first.value ? "better" : "unchanged";
+  return `${first.value}/10 (${ts(first.at)}) \u2192 ${last.value}/10 (${ts(last.at)}) \u2014 ${dir}; highest ${Math.max(...sev.map((s) => s.value))}/10`;
+}
+var SOURCE_TAG = {
+  symptom_check: "patient-reported",
+  patient_update: "patient-reported",
+  correction: "patient correction",
+  mednest_advice: "MedNest"
+};
+function renderVisitSummaryText(s, profile) {
+  const L = [];
+  L.push("DOCTOR VISIT SUMMARY");
+  L.push(`Patient: ${profile.name}${profile.ageYears ? `, ${profile.ageYears} years` : ""}${profile.sex && profile.sex !== "-" ? `, ${profile.sex}` : ""}`);
+  L.push(`Prepared: ${ts(s.generatedAt)}${s.since ? ` \xB7 covers reports since ${ts(s.since)}` : ""}`);
+  L.push("Prepared by the patient with MedNest from their own reports and records. Not a diagnosis.");
+  if (s.urgent)
+    L.push("", `\u26A0 IMPORTANT: on ${ts(s.urgent.at)} MedNest advised ${s.urgent.disposition === "emergency" ? "EMERGENCY care" : "seeing a doctor the same day"} for ${s.urgent.complaint.toLowerCase()}. Do not wait for a planned appointment.`);
+  if (s.empty) {
+    L.push("", "No symptoms have been reported in this period.");
+  } else {
+    L.push("", "TIMELINE");
+    for (const t of s.timeline)
+      L.push(`\u2022 ${ts(t.at)} \u2014 ${t.text} [${SOURCE_TAG[t.source]}]`);
+    for (const c of s.complaints) {
+      L.push("", `SUMMARY: ${c.complaint.toUpperCase()}`);
+      L.push(`\u2022 First reported: ${ts(c.firstReported)}${c.lastReported !== c.firstReported ? ` \xB7 last report: ${ts(c.lastReported)}` : ""}`);
+      L.push(`\u2022 Onset: ${c.onset ?? "not reported"}`);
+      L.push(`\u2022 Severity: ${trend(c.severities)}`);
+      L.push(`\u2022 Reported symptoms / findings: ${c.positives.length ? c.positives.join("; ") : "none beyond the main complaint"}`);
+      if (c.negatives.length)
+        L.push(`\u2022 Patient said NO to: ${c.negatives.join("; ")}`);
+      L.push(`\u2022 Medicines taken for this (patient-reported): ${c.remedies.length ? c.remedies.join("; ") : "none reported"}`);
+      L.push(`\u2022 Happened before: ${c.hadBefore ?? "not reported"}`);
+      if (c.latestAdvice)
+        L.push(`\u2022 Latest MedNest advice: ${c.latestAdvice}`);
+      if (c.toClarify.length)
+        L.push(`\u2022 Still to clarify: ${c.toClarify.join("; ")}`);
+    }
+  }
+  L.push("", "RECORDS IN MEDNEST");
+  L.push(`\u2022 Allergies: ${s.allergies ?? "none recorded"}`);
+  L.push(`\u2022 Current medicines: ${s.medicines.length ? "" : "none recorded"}`);
+  for (const m of s.medicines)
+    L.push(`   \u2013 ${m}`);
+  L.push(`\u2022 Diagnoses written on documents: ${s.diagnoses.length ? "" : "none recorded"}`);
+  for (const d of s.diagnoses)
+    L.push(`   \u2013 ${d}`);
+  L.push("", "Patient-reported information has not been verified by a clinician.");
+  return L.join("\n");
+}
 export {
   EMERGENCY_MESSAGE,
   EMERGENCY_NUMBER,
@@ -2546,6 +2762,7 @@ export {
   appointmentAlarms,
   askCare,
   buildDoseAlarms,
+  buildVisitSummary,
   computeOutcome,
   deriveStatus,
   detectRedFlags,
@@ -2566,6 +2783,7 @@ export {
   readWithRules,
   reminderBody,
   renderOutcome,
+  renderVisitSummaryText,
   resolveTime,
   respond,
   scheduleBlockers,
