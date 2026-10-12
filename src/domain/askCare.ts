@@ -68,6 +68,8 @@ export interface AskReply {
   medicineId?: string | null;
   /** Questions the user can tap next. */
   suggestions?: string[];
+  /** The user mentioned a medicine that is not recorded: offer to add it (name/dose as told). */
+  addMedicine?: { name: string; dose: string | null };
 }
 
 const GENERAL_NOTE = 'This is general information about the medicine; your doctor can tell you why it was prescribed for you.';
@@ -204,7 +206,36 @@ export function askCare(question: string, d: AskData, ctx: AskContext = {}): Ask
     if (r) return r;
   }
 
-  // 2. A medicine that is not in the record: general information only.
+  // 2a. The person TELLS us about a medicine ("I am also taking colchicine 5 mg").
+  // Ask cannot change the record, so confirm or point to where it is added.
+  // "started taking" is listed before "taking" so "I started taking X" captures X, not "taking X".
+  const told = /\b(?:i(?:'m| am)?|also)\s+(?:also\s+|now\s+|just\s+)?(?:started\s+(?:taking\s+|on\s+)?|taking\s+|take\s+|on\s+|using\s+|use\s+)(?:the |a |tab\.? |tablet |cap\.? |capsule |syp\.? )?([a-z][a-z0-9-]{2,}(?: [a-z][a-z-]{2,})?)(?:\s+(\d+(?:\.\d+)?\s?(?:mg|mcg|ml|g|iu)))?/.exec(lower);
+  const vague = /^(medicine|medicines|medication|tablets?|pills?|this|that|them|it|my)\b/;
+  if (told && !vague.test(told[1]!)) {
+    const said = told[1]!.replace(/\s+(?:tablet|tablets|daily|twice|once|at|in|for|and|every|now|too|also)$/, '').trim();
+    const dose = told[2]?.replace(/\s+/g, ' ') ?? null;
+    const general = lookupMedicineInfo(said);
+    const name = general?.names[0] ?? said;
+    const inRecord = d.medicines.find((m) => {
+      const first = m.name.toLowerCase().split(/\s+/)[0] ?? '';
+      return first === said.split(' ')[0] || (!!general && lookupMedicineInfo(m.name) === general);
+    });
+    if (inRecord && currentMeds(d).includes(inRecord)) {
+      return { answer: `Yes — ${title(inRecord)} is in ${d.profileName}’s records: ${timesText(inRecord)}.`, sources: src([inRecord]), medicineId: inRecord.id, suggestions: ['What is it for?', 'When do I take it?'] };
+    }
+    const cap = name.charAt(0).toUpperCase() + name.slice(1);
+    const add = `${cap} is not in ${d.profileName}’s records yet. Tap “Add ${cap}${dose ? ' ' + dose : ''}” below to add it (or ＋ → “Enter manually”), then set the times your doctor gave — I’ll answer questions about it and remind you of doses.`;
+    const others = currentMeds(d).map((m) => m.name);
+    const tellDoctor = others.length ? ` You also take ${others.join(', ')}. Make sure your doctor and pharmacist know about every medicine you take.` : '';
+    return {
+      answer: (general ? `${add} ${generalText(name, general)} ${GENERAL_NOTE}` : add) + tellDoctor,
+      sources: [],
+      addMedicine: { name: cap, dose },
+      suggestions: ['What medicines am I taking?'],
+    };
+  }
+
+  // 2b. A medicine that is not in the record: general information only.
   const general = generalMedicine(q);
   if (general && !explicit && /\b(what|why|for|used|about|tell)\b/.test(lower)) {
     const name = general.names[0]!;

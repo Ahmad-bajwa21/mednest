@@ -51,6 +51,28 @@ describe('Ask', () => {
     expect(r.answer).toMatch(/not in Tashfeen’s records/);
   });
 
+  it('"I am also taking colchecine 5 mg" points to adding it, with general info (typo tolerated)', () => {
+    const r = askCare('i am also taking colchecine 5 mg', base())!;
+    expect(r.answer).toMatch(/Colchicine is not in Tashfeen’s records/);
+    expect(r.answer).toMatch(/Enter manually/);
+    expect(r.answer).toMatch(/You also take warfarin/);
+    expect(r.addMedicine).toEqual({ name: 'Colchicine', dose: '5 mg' });
+    expect(r.answer).toMatch(/gout/);
+    expect(r.answer).not.toMatch(/couldn’t find/);
+  });
+
+  it('"I take warfarin" confirms a medicine already in the record', () => {
+    const r = askCare('I take warfarin at night', base())!;
+    expect(r.answer).toMatch(/Yes — warfarin 5mg is in Tashfeen’s records: 9:00 PM/);
+    expect(r.medicineId).toBe('m1');
+  });
+
+  it('"I started taking xyzmed" with an unknown medicine still points to adding it', () => {
+    const r = askCare('I started taking xyzmed', base())!;
+    expect(r.answer).toMatch(/Xyzmed is not in Tashfeen’s records/);
+    expect(r.answer).not.toMatch(/commonly used/);
+  });
+
   it('still refuses advice and catches emergencies', () => {
     expect(askCare('should I stop warfarin?', base())!.refusal).toBe(true);
     expect(askCare('I have chest pain', base())!.emergency).toBe(true);

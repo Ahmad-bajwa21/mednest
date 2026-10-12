@@ -1873,6 +1873,7 @@ var MEDICINE_INFO = [
   { names: ["paracetamol", "acetaminophen", "panadol", "calpol", "tylenol"], what: "a pain reliever and fever reducer", commonUse: "for mild to moderate pain and for fever", note: "Taking more than the prescribed amount can seriously harm the liver. Many cold and flu products also contain paracetamol." },
   { names: ["ibuprofen", "brufen", "advil"], what: "an anti-inflammatory pain reliever (NSAID)", commonUse: "for pain, swelling and fever" },
   { names: ["diclofenac", "voltaren", "dicloran", "arthrotec"], what: "an anti-inflammatory pain reliever (NSAID)", commonUse: "for pain and swelling, such as joint or muscle pain" },
+  { names: ["colchicine", "colchicin"], what: "a medicine for gout", commonUse: "to treat and prevent gout attacks, and sometimes for inflammation around the heart (pericarditis)", note: "Taking more than prescribed is dangerous. Stop and tell your doctor if you get diarrhoea, vomiting or stomach pain." },
   { names: ["naproxen", "naprosyn"], what: "an anti-inflammatory pain reliever (NSAID)", commonUse: "for pain and swelling, such as joint pain" },
   { names: ["tramadol", "tramal"], what: "a strong pain reliever (opioid)", commonUse: "for moderate to severe pain", note: "It can cause drowsiness and dependence. Do not drive if it makes you sleepy." },
   { names: ["omeprazole", "risek", "losec", "omezol"], what: "a stomach acid reducer (proton pump inhibitor)", commonUse: "for heartburn, acid reflux, stomach ulcers and gastritis, and to protect the stomach" },
@@ -2088,6 +2089,31 @@ function askCare(question, d, ctx = {}) {
     const r = medicineAnswer();
     if (r)
       return r;
+  }
+  const told = /\b(?:i(?:'m| am)?|also)\s+(?:also\s+|now\s+|just\s+)?(?:started\s+(?:taking\s+|on\s+)?|taking\s+|take\s+|on\s+|using\s+|use\s+)(?:the |a |tab\.? |tablet |cap\.? |capsule |syp\.? )?([a-z][a-z0-9-]{2,}(?: [a-z][a-z-]{2,})?)(?:\s+(\d+(?:\.\d+)?\s?(?:mg|mcg|ml|g|iu)))?/.exec(lower);
+  const vague = /^(medicine|medicines|medication|tablets?|pills?|this|that|them|it|my)\b/;
+  if (told && !vague.test(told[1])) {
+    const said = told[1].replace(/\s+(?:tablet|tablets|daily|twice|once|at|in|for|and|every|now|too|also)$/, "").trim();
+    const dose = told[2]?.replace(/\s+/g, " ") ?? null;
+    const general3 = lookupMedicineInfo(said);
+    const name = general3?.names[0] ?? said;
+    const inRecord = d.medicines.find((m) => {
+      const first = m.name.toLowerCase().split(/\s+/)[0] ?? "";
+      return first === said.split(" ")[0] || !!general3 && lookupMedicineInfo(m.name) === general3;
+    });
+    if (inRecord && currentMeds(d).includes(inRecord)) {
+      return { answer: `Yes \u2014 ${title(inRecord)} is in ${d.profileName}\u2019s records: ${timesText(inRecord)}.`, sources: src([inRecord]), medicineId: inRecord.id, suggestions: ["What is it for?", "When do I take it?"] };
+    }
+    const cap = name.charAt(0).toUpperCase() + name.slice(1);
+    const add = `${cap} is not in ${d.profileName}\u2019s records yet. Tap \u201CAdd ${cap}${dose ? " " + dose : ""}\u201D below to add it (or \uFF0B \u2192 \u201CEnter manually\u201D), then set the times your doctor gave \u2014 I\u2019ll answer questions about it and remind you of doses.`;
+    const others = currentMeds(d).map((m) => m.name);
+    const tellDoctor = others.length ? ` You also take ${others.join(", ")}. Make sure your doctor and pharmacist know about every medicine you take.` : "";
+    return {
+      answer: (general3 ? `${add} ${generalText(name, general3)} ${GENERAL_NOTE}` : add) + tellDoctor,
+      sources: [],
+      addMedicine: { name: cap, dose },
+      suggestions: ["What medicines am I taking?"]
+    };
   }
   const general2 = generalMedicine(q);
   if (general2 && !explicit && /\b(what|why|for|used|about|tell)\b/.test(lower)) {

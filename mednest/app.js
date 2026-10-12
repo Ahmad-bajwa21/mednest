@@ -816,6 +816,8 @@ function screenMedicine(id, mid, editing = false) {
       <div class="caption" style="text-align:center;margin-top:8px">Only change or stop a medicine as your doctor advised.</div>`}
       <div class="disclaimer">${DISCLAIMER}</div>
     </div>`);
+  // Leave edit mode; drop a trailing /edit from the address so a refresh shows the view.
+  const viewMed = () => (location.hash.endsWith('/edit') ? go(`#/profile/${id}/medicine/${mid}`) : screenMedicine(id, mid));
   const readForm = () => { if (!f) return; f.name = $('#e-name').value; f.dose = $('#e-dose').value; f.startDate = $('#e-start').value; f.durationDays = $('#e-days').value; f.instructions = $('#e-instr').value; };
   $('#m-edit')?.addEventListener('click', () => { window.__medForm = null; screenMedicine(id, mid, true); });
   $('#m-edit2')?.addEventListener('click', () => { window.__medForm = null; screenMedicine(id, mid, true); });
@@ -830,7 +832,7 @@ function screenMedicine(id, mid, editing = false) {
     app.querySelectorAll('[data-slot]').forEach((b) => b.addEventListener('click', () => { readForm(); const s = b.dataset.slot; f.times = f.times.includes(s) ? f.times.filter((x) => x !== s) : [...f.times, s]; screenMedicine(id, mid, true); }));
     app.querySelectorAll('[data-rmtime]').forEach((b) => b.addEventListener('click', () => { readForm(); f.times = f.times.filter((x) => x !== b.dataset.rmtime); screenMedicine(id, mid, true); }));
     $('#e-addtime')?.addEventListener('click', () => { readForm(); const t = core.resolveTime($('#e-time').value || ''); if (!t) return flash('Pick a time first.'); f.times = [...new Set([...f.times, t])]; screenMedicine(id, mid, true); });
-    $('#e-cancel').addEventListener('click', () => { window.__medForm = null; screenMedicine(id, mid); });
+    $('#e-cancel').addEventListener('click', () => { window.__medForm = null; viewMed(); });
     $('#e-save').addEventListener('click', () => {
       readForm();
       if (!f.name.trim()) return flash('Please enter the medicine name.');
@@ -839,7 +841,7 @@ function screenMedicine(id, mid, editing = false) {
       Object.assign(m, { name: f.name.trim(), dose: f.dose.trim() || null, times: f.asNeeded ? [] : f.times, asNeeded: f.asNeeded, durationDays: f.durationDays ? parseInt(f.durationDays, 10) : null, startDate: f.startDate || null, endDate: '', instructions: f.instructions.trim() || null, confirmedAt: nowIso(), updatedAt: nowIso() });
       if (m.status === 'pending') m.status = 'active';
       audit(id, 'medicine', m.id, 'update', { before, after: { name: m.name, dose: m.dose, times: m.times, durationDays: m.durationDays, startDate: m.startDate, instructions: m.instructions } });
-      save(); window.__medForm = null; screenMedicine(id, mid);
+      save(); window.__medForm = null; viewMed();
     });
   }
 }
@@ -942,7 +944,8 @@ function renderAsk(id) {
     ? `<div class="card" style="margin-left:40px;border-color:var(--accent)"><strong>You:</strong> ${esc(m.text)}</div>`
     : `<div class="card ${m.emergency ? 'bubble-emergency' : ''}"><div class="msg">${esc(m.text).replace(/\n/g, '<br>')}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
   const lastBot = [...chat.log].reverse().find((m) => m.role === 'bot');
-  const followChips = lastBot?.suggestions?.length ? `<div class="chips" style="margin-top:8px">${lastBot.suggestions.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
+  const addBtn = lastBot?.addMedicine && !lastBot.added ? `<button class="btn primary" id="ask-add">Add ${esc(lastBot.addMedicine.name)}${lastBot.addMedicine.dose ? ' ' + esc(lastBot.addMedicine.dose) : ''} to medicines</button>` : '';
+  const followChips = addBtn + (lastBot?.suggestions?.length ? `<div class="chips" style="margin-top:8px">${lastBot.suggestions.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '');
   render(`
     ${topbar('#/profile/' + id, 'Ask')}
     <div class="screen">
@@ -1056,10 +1059,26 @@ function wire() {
       const res = askRecords(id, text, { lastMedicineId: chat.lastMedicineId });
       if (res.medicineId) chat.lastMedicineId = res.medicineId;
       chat.log.push({ role: 'user', text });
-      chat.log.push({ role: 'bot', text: res.answer, sources: res.sources, suggestions: res.suggestions, emergency: res.emergency });
+      chat.log.push({ role: 'bot', text: res.answer, sources: res.sources, suggestions: res.suggestions, emergency: res.emergency, addMedicine: res.addMedicine });
       renderAsk(id);
       window.scrollTo(0, document.body.scrollHeight);
     };
+    // "I am also taking X": add it as the user told it (name + dose only). Times are never
+    // guessed — the medicine waits under Pending confirmations until the user sets them.
+    $('#ask-add')?.addEventListener('click', () => {
+      const chat = window.__chat;
+      const bot = [...chat.log].reverse().find((m) => m.role === 'bot');
+      if (!bot?.addMedicine || bot.added) return;
+      const now = nowIso();
+      const med = { id: uid(), profileId: id, documentId: null, name: bot.addMedicine.name, dose: bot.addMedicine.dose, times: [], durationDays: null, startDate: todayISO(), endDate: '', instructions: null, asNeeded: false, confirmedAt: now, source: 'manual', status: 'pending', active: true, updatedAt: now };
+      DB.medicines.push(med);
+      audit(id, 'medicine', med.id, 'create', { after: { name: med.name, dose: med.dose, status: 'pending' }, note: 'added from Ask' });
+      save();
+      bot.added = true;
+      chat.lastMedicineId = med.id;
+      window.__medForm = null;
+      location.hash = `#/profile/${id}/medicine/${med.id}/edit`;
+    });
     $('#ask-send').addEventListener('click', () => submit($('#ask-input').value));
     $('#ask-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(e.target.value); });
     app.querySelectorAll('[data-ask]').forEach((b) => b.addEventListener('click', () => submit(b.dataset.ask)));
@@ -1316,7 +1335,7 @@ function route() {
       case 'history': return screenHistory(id);
       case 'episode': return screenEpisode(id, parts[3]);
       case 'meds': return screenMeds(id);
-      case 'medicine': return screenMedicine(id, parts[3]);
+      case 'medicine': return screenMedicine(id, parts[3], parts[4] === 'edit');
       case 'doses': return screenDoses(id);
       case 'appointments': return screenAppointments(id);
       case 'assistant': return screenAssistant(id);
