@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { ScrollView, View, TextInput, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useBundle } from '../../../src/features/useBundle';
-import { askCare } from '../../../src/domain/askCare';
+import { askCare, type AskContext } from '../../../src/domain/askCare';
 import { useCare } from '../../../src/features/useCare';
 import { useTheme } from '../../../src/design/theme';
 import { Button, Card, Chip, Disclaimer, Text } from '../../../src/design/components';
@@ -23,7 +23,7 @@ export default function Ask() {
   const { c } = useTheme();
   const [log, setLog] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
-  const [lastMedicineId, setLastMedicineId] = useState<string | null>(null);
+  const [ctx, setCtx] = useState<AskContext>({});
 
   const submit = (text: string) => {
     if (!text.trim() || !bundle || !data || !profile) return;
@@ -37,8 +37,14 @@ export default function Ask() {
       episodes: data.episodes,
       doseLogs: data.doseLogs,
       now: new Date(),
-    }, { lastMedicineId });
-    if (res?.medicineId) setLastMedicineId(res.medicineId);
+    }, ctx);
+    // Conversation memory: selected medicine, already-explained medicines, and the
+    // question behind a "which medicine?" clarification.
+    setCtx({
+      lastMedicineId: res?.medicineId ?? ctx.lastMedicineId ?? null,
+      explainedIds: res?.explainedIds ?? ctx.explainedIds,
+      pendingIntent: res?.pendingIntent ?? null,
+    });
     setLog((l) => [...l, { role: 'user', text }, { role: 'bot', text: res?.answer ?? '', sources: res?.sources, suggestions: res?.suggestions, emergency: res?.emergency }]);
     setInput('');
   };

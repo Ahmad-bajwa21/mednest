@@ -21,7 +21,7 @@ describe('Ask', () => {
     const r = askCare('what medicine do i eat and why', base())!;
     expect(r.answer).toMatch(/Warfarin 5mg — a blood thinner/);
     expect(r.answer).toMatch(/Take: 9:00 PM/);
-    expect(r.answer).toMatch(/Prescribed by Dr\. Ali on 13 Oct 2026/);
+    expect(r.answer).toMatch(/prescription of 13 Oct 2026 \(Dr\. Ali\)/);
     expect(r.answer).toMatch(/no reason written/);
     expect(r.answer).toMatch(/blood thinner/);
     expect(r.medicineId).toBe('m1');
@@ -82,7 +82,7 @@ describe('Ask', () => {
 
   it('answers follow-ups, allergies and today’s doses', () => {
     const d = base({ appointments: [{ id: 'a1', date: '2026-10-20', status: 'planned', doctor: 'Dr. Ali', reason: 'INR check' }] });
-    expect(askCare('when is my next follow up', d)!.answer).toMatch(/20 Oct 2026 with Dr\. Ali — INR check/);
+    expect(askCare('when is my next follow up', d)!.answer).toMatch(/Next follow-up: 20 Oct 2026 \(in 7 days\)[\s\S]*Doctor: Dr\. Ali[\s\S]*Reason: INR check/);
     expect(askCare('any allergies?', d)!.answer).toMatch(/penicillin/);
     expect(askCare('did I take my medicines today', d)!.answer).toMatch(/9:00 PM warfarin: upcoming/);
   });

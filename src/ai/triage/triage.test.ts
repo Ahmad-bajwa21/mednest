@@ -120,18 +120,19 @@ describe('triage engine', () => {
       'bloating',
       'biryani from a street stall',
       'no',
+      'none',
     ]);
     expect(state.done).toBe(true);
     expect(state.disposition).toBe('self_care');
     const summary = last[0]!;
     expect(summary.kind).toBe('summary');
-    expect(summary.text).toMatch(/Get medical help sooner if/);
+    expect(summary.text).toMatch(/Go to the emergency department or call 1122 if/);
     expect(summary.text).toMatch(/not a diagnosis/);
     expect(summary.text).not.toMatch(/\bmg\b|tablet/i);
   });
 
   it('combination rule: lower right pain with fever is urgent', async () => {
-    const { state } = await run(['stomach pain since this morning', 'lower right', '6', 'all the time', 'fever and vomiting', 'rice', 'no']);
+    const { state } = await run(['stomach pain since this morning', 'lower right', '6', 'all the time', 'fever and vomiting', 'rice', 'no', 'none']);
     expect(state.disposition).toBe('urgent');
   });
 
@@ -156,7 +157,8 @@ describe('triage engine', () => {
     });
     const { state, last } = await run(['stomach pain 2 days', 'upper middle', '3', 'comes and goes', 'none', 'dal chawal'], c);
     expect(asked(state).at(-1)).toMatch(/reported stomach pain on 2026-09-12/);
-    const done = await respond(state, 'yes', c);
+    const mid = await respond(state, 'yes', c);
+    const done = await respond(mid.state, 'none', c);
     expect(done.messages[0]!.text).toMatch(/Penicillin/);
     expect(done.messages[0]!.text).toMatch(/Metformin/);
     expect(done.messages[0]!.text).toMatch(/reported this 1 time before/);
@@ -164,7 +166,7 @@ describe('triage engine', () => {
   });
 
   it('too many "not sure" answers gives an insufficient-information outcome', async () => {
-    const { state } = await run(['stomach pain', 'not sure', 'not sure', 'not sure', 'not sure', 'not sure', 'skip', 'skip']);
+    const { state } = await run(['stomach pain', 'not sure', 'not sure', 'not sure', 'not sure', 'not sure', 'skip', 'skip', 'skip']);
     expect(state.disposition).toBe('insufficient');
   });
 
@@ -180,5 +182,64 @@ describe('triage engine', () => {
     const snapshot = JSON.stringify(state);
     await respond(state, '2 days', ctx());
     expect(JSON.stringify(state)).toBe(snapshot);
+  });
+});
+
+describe('headache triage scenarios (protocols-0.2-draft)', () => {
+  const asks = (s: TriageState, re: RegExp) => s.transcript.some((t) => t.role === 'assistant' && re.test(t.text));
+
+  it('severe headache with fever: asks neck, rash and confusion directly, then advises "today, within hours"', async () => {
+    const { state, last } = await run(['I have a headache', 'since yesterday', 'gradually', '8', 'fever', 'no', 'no', 'no', 'no', 'no', 'none']);
+    expect(asks(state, /neck stiff/)).toBe(true);
+    expect(asks(state, /new rash/)).toBe(true);
+    expect(asks(state, /confusion, unusual drowsiness/)).toBe(true);
+    expect(state.disposition).toBe('urgent');
+    expect(last[0]!.text).toMatch(/within the next few hours/);
+    expect(last[0]!.text).toMatch(/Why:\n• A severe headache with fever/);
+    expect(last[0]!.text).toMatch(/Stiff neck: no/);
+  });
+
+  it.each([
+    ['stiff neck', ['headache', '1 day', 'gradually', '7', 'fever', 'yes']],
+    ['rash with fever', ['headache', '1 day', 'gradually', '6', 'fever', 'no', 'yes']],
+    ['confusion', ['headache', '1 day', 'gradually', '7', 'fever', 'no', 'no', 'yes']],
+    ['sudden extremely severe headache', ['headache', '1 hour', 'suddenly', '10']],
+    ['weakness volunteered', ['headache with weakness in my arm']],
+  ])('emergency: %s — and questioning stops', async (_label, msgs) => {
+    const { state, last } = await run(msgs as string[]);
+    expect(state.disposition).toBe('emergency');
+    expect(state.done).toBe(true);
+    expect(last.at(-1)!.kind).toBe('emergency');
+  });
+
+  it('missing answer to a critical question raises urgency instead of guessing', async () => {
+    const { state } = await run(['headache', '2 days', 'gradually', '7', 'none', 'not sure', 'no', 'no', 'no', 'no', 'none']);
+    expect(state.flags.some((f) => f.id === 'unknown_neck')).toBe(true);
+    expect(state.disposition).toBe('urgent');
+  });
+
+  it('similar to previous mild headaches → watch at home; new/different → today', async () => {
+    const mild = await run(['headache', 'this morning', 'gradually', '3', 'none', 'no', 'yes', 'no', 'none']);
+    expect(asks(mild.state, /different from your usual ones/)).toBe(true);
+    expect(mild.state.disposition).toBe('self_care');
+    const diff = await run(['headache', 'this morning', 'gradually', '4', 'none', 'no', 'yes', 'yes', 'none']);
+    expect(diff.state.disposition).toBe('urgent');
+  });
+
+  it('does not ask irrelevant red-flag questions for a mild headache without fever', async () => {
+    const { state } = await run(['headache', 'today', 'gradually', '3', 'none', 'no', 'no', 'none']);
+    expect(asks(state, /new rash/)).toBe(false);
+    expect(asks(state, /neck stiff/)).toBe(false);
+  });
+
+  it('works without any patient history', async () => {
+    const c = ctx({ ageYears: null, allergies: null, activeMedicines: [], priorEpisodes: [] });
+    const { state } = await run(['headache', 'today', 'gradually', '3', 'none', 'no', 'no', 'none'], c);
+    expect(state.done).toBe(true);
+  });
+
+  it('records medicines the patient took (patient-reported)', async () => {
+    const { state } = await run(['headache', 'today', 'gradually', '3', 'none', 'no', 'no', 'panadol 500 at 9am']);
+    expect(state.answers.remedies).toEqual({ kind: 'text', value: 'panadol 500 at 9am' });
   });
 });

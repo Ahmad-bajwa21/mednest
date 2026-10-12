@@ -291,7 +291,7 @@ function isSkip(input) {
 }
 
 // src/ai/triage/protocols.ts
-var PROTOCOL_VERSION = "protocols-0.1-draft";
+var PROTOCOL_VERSION = "protocols-0.2-draft";
 var hoursOf = (a, id) => {
   const v = a[id];
   return v?.kind === "duration" ? v.hours : null;
@@ -459,31 +459,87 @@ var headache = {
       prefillable: true,
       options: [
         { value: "fever", label: "Fever", aliases: /fever|temperature|bukhar/ },
-        { value: "stiff_neck", label: "Stiff neck", aliases: /stiff neck|neck (is )?stiff/ },
         { value: "vomiting", label: "Vomiting", aliases: /vomit|throwing up|ulti/ },
+        { value: "light", label: "Bright light bothers me", aliases: /light (bothers|hurts)|sensitive to light|photophob/ },
         { value: "vision", label: "Vision changes", aliases: /vision|blurr|double vision|seeing/ },
+        { value: "stiff_neck", label: "Stiff neck", aliases: /stiff neck|neck (is )?stiff/ },
         { value: "weakness", label: "Weakness or numbness", aliases: /weak|numb/ },
         { value: "confusion", label: "Confusion", aliases: /confus|disorient/ },
-        { value: "light", label: "Bright light bothers me", aliases: /light (bothers|hurts)|sensitive to light/ },
         NONE
       ]
     },
+    // Red-flag questions, asked directly (not left to a checklist) when relevant.
+    {
+      id: "neck",
+      kind: "yesno",
+      label: "Stiff neck",
+      critical: "neck stiffness",
+      question: "Is your neck stiff, or painful when you bend your head forward (chin to chest)?",
+      askIf: (a) => !has(a, "associated", "stiff_neck") && (has(a, "associated", "fever") || (scaleOf(a, "severity") ?? 0) >= 7)
+    },
+    {
+      id: "rash",
+      kind: "yesno",
+      label: "New rash",
+      critical: "a rash",
+      question: "Do you have a new rash \u2014 especially spots that don\u2019t fade when you press a glass against them?",
+      askIf: (a) => has(a, "associated", "fever")
+    },
+    {
+      id: "neuro",
+      kind: "yesno",
+      label: "Confusion, drowsiness, weakness or speech problems",
+      critical: "confusion, weakness or speech problems",
+      question: "Any confusion, unusual drowsiness, weakness or numbness, or difficulty speaking?",
+      askIf: (a) => !has(a, "associated", "weakness") && !has(a, "associated", "confusion") && (has(a, "associated", "fever") || (scaleOf(a, "severity") ?? 0) >= 7 || choiceOf(a, "speed") === "sudden")
+    },
+    {
+      id: "vomit_repeat",
+      kind: "yesno",
+      label: "Repeated vomiting",
+      question: "Have you vomited more than once?",
+      askIf: (a) => has(a, "associated", "vomiting")
+    },
     { id: "injury", kind: "yesno", label: "Head injury", question: "Did you hit or injure your head recently?" },
-    previous("headaches")
+    previous("headaches"),
+    {
+      id: "different",
+      kind: "yesno",
+      label: "Different from usual headaches",
+      critical: "a change from your usual headaches",
+      question: "Is this headache different from your usual ones \u2014 much worse, a new kind of pain, or with new symptoms?",
+      askIf: (a) => yes(a, "previous")
+    }
   ],
   rules: (a) => {
     const out = [];
-    if (choiceOf(a, "speed") === "sudden" && (scaleOf(a, "severity") ?? 0) >= 8)
+    const sev = scaleOf(a, "severity") ?? 0;
+    const fever2 = has(a, "associated", "fever");
+    const neck = has(a, "associated", "stiff_neck") || yes(a, "neck");
+    const neuro = has(a, "associated", "weakness") || has(a, "associated", "confusion") || yes(a, "neuro");
+    if (choiceOf(a, "speed") === "sudden" && sev >= 8)
       out.push(flag("thunderclap", "emergency", "a sudden, very severe headache"));
-    if (has(a, "associated", "fever") && has(a, "associated", "stiff_neck"))
+    if (fever2 && neck)
       out.push(flag("meningism", "emergency", "headache with fever and a stiff neck"));
-    if (has(a, "associated", "weakness") || has(a, "associated", "confusion"))
-      out.push(flag("neuro", "emergency", "headache with weakness, numbness or confusion"));
+    if (fever2 && yes(a, "rash"))
+      out.push(flag("fever_rash", "emergency", "headache with fever and a rash"));
+    if (neuro)
+      out.push(flag("neuro", "emergency", "headache with confusion, drowsiness, weakness or speech problems"));
+    if (neck && !fever2)
+      out.push(flag("neck", "urgent", "headache with a stiff neck"));
+    if (fever2 && sev >= 7)
+      out.push(flag("fever_severe_headache", "urgent", "a severe headache with fever"));
+    if (fever2 && has(a, "associated", "light"))
+      out.push(flag("fever_light", "urgent", "headache with fever and sensitivity to light"));
+    if (yes(a, "vomit_repeat"))
+      out.push(flag("vomit_repeat", "urgent", "headache with repeated vomiting"));
     if (has(a, "associated", "vision"))
       out.push(flag("vision", "urgent", "headache with changes in vision"));
     if (yes(a, "injury"))
       out.push(flag("head_injury", "urgent", "a headache after a head injury"));
-    if ((scaleOf(a, "severity") ?? 0) >= 8)
+    if (yes(a, "different"))
+      out.push(flag("new_pattern", "urgent", "a headache that is different from your usual ones"));
+    if (sev >= 8 && !(fever2 && sev >= 7))
       out.push(flag("severe_headache", "urgent", "a severe headache"));
     return out;
   },
@@ -492,10 +548,10 @@ var headache = {
     "Regular meals and sleep can help; note any triggers (screens, missed meals, stress)."
   ],
   safetyNet: [
-    "The headache is sudden and the worst you have ever had",
-    "You develop a stiff neck with fever, or a rash",
-    "You have weakness, numbness, trouble speaking or confusion",
-    "It follows a head injury, or keeps getting worse"
+    "The headache becomes sudden and the worst you have ever had",
+    "You develop a stiff neck, or a rash that does not fade when pressed with a glass",
+    "You become confused or very drowsy, or have weakness, numbness or trouble speaking",
+    "You keep vomiting, have a seizure, or the headache follows a head injury"
   ]
 };
 var fever = {
@@ -533,16 +589,47 @@ var fever = {
         { value: "diarrhea", label: "Diarrhoea or vomiting", aliases: /diarrh|vomit|loose motion|dast|ulti/ },
         { value: "breathing", label: "Hard to breathe", aliases: /breath/ },
         { value: "body_ache", label: "Body aches", aliases: /body ache|joint pain|muscle pain/ },
+        { value: "headache", label: "Headache", aliases: /headache|head ?ache|sar ?dard/ },
         NONE
       ]
+    },
+    {
+      id: "neck",
+      kind: "yesno",
+      label: "Stiff neck",
+      critical: "neck stiffness",
+      question: "Is your neck stiff, or painful when you bend your head forward (chin to chest)?",
+      askIf: (a) => has(a, "associated", "headache") && !has(a, "associated", "stiff_neck")
+    },
+    {
+      id: "rash_glass",
+      kind: "yesno",
+      label: "Rash that doesn\u2019t fade",
+      critical: "a rash that doesn\u2019t fade",
+      question: "Does the rash stay visible when you press a clear glass firmly against it?",
+      askIf: (a) => has(a, "associated", "rash")
+    },
+    {
+      id: "neuro",
+      kind: "yesno",
+      label: "Confusion or unusual drowsiness",
+      critical: "confusion or unusual drowsiness",
+      question: "Is there any confusion or unusual drowsiness (hard to wake)?",
+      askIf: (a) => has(a, "associated", "headache") || choiceOf(a, "temperature") === "gt40"
     },
     { id: "drinking", kind: "yesno", label: "Drinking normally", question: "Are you able to drink fluids normally?" },
     previous("a fever")
   ],
   rules: (a, ctx) => {
     const out = [];
-    if (has(a, "associated", "stiff_neck"))
+    if (has(a, "associated", "stiff_neck") || yes(a, "neck"))
       out.push(flag("meningism", "emergency", "fever with a stiff neck"));
+    if (yes(a, "rash_glass"))
+      out.push(flag("nonblanching_rash", "emergency", "fever with a rash that does not fade when pressed"));
+    if (yes(a, "neuro"))
+      out.push(flag("fever_neuro", "emergency", "fever with confusion or unusual drowsiness"));
+    if (has(a, "associated", "headache") && choiceOf(a, "temperature") && ["39_40", "gt40"].includes(choiceOf(a, "temperature")))
+      out.push(flag("fever_headache_high", "urgent", "a high fever with headache"));
     if (has(a, "associated", "breathing"))
       out.push(flag("fever_breathing", "emergency", "fever with difficulty breathing"));
     if (has(a, "associated", "rash"))
@@ -735,6 +822,14 @@ var general = {
   generalInfo: ["Rest, drink enough fluids, and keep a short note of how the symptoms change to show your doctor."],
   safetyNet: ["The symptoms get much worse or new symptoms appear", "You feel very unwell, faint, or confused"]
 };
+var remedies = {
+  id: "remedies",
+  kind: "text",
+  label: "Medicines taken for this",
+  question: "Have you taken any medicine for this so far? If yes, which one and when? Say \u201Cnone\u201D if not."
+};
+for (const p of [abdominal, headache, fever, cough, gut, general])
+  p.slots.push(remedies);
 var PROTOCOLS = [abdominal, headache, fever, cough, gut, general];
 var GENERAL_PROTOCOL = general;
 function protocolById(id) {
@@ -769,6 +864,7 @@ function startTriage(ctx) {
     pendingSlot: null,
     retries: 0,
     flags: [],
+    textFlags: [],
     done: false,
     disposition: null,
     transcript: []
@@ -783,8 +879,10 @@ async function respond(prev, text, ctx, interpret) {
     return { state, messages };
   state.transcript.push({ role: "user", text: input, at: nowIso(ctx) });
   const free = detectRedFlags(input);
-  if (free.length)
+  if (free.length) {
+    state.textFlags = [...state.textFlags ?? [], ...free];
     mergeFlags(state, free);
+  }
   if (highestLevel(free) === "emergency") {
     messages.push(...finishEmergency(state, ctx, free));
     return { state, messages };
@@ -845,7 +943,13 @@ async function respond(prev, text, ctx, interpret) {
     }
   }
   const protocol = currentProtocol(state);
+  state.flags = [];
+  mergeFlags(state, state.textFlags ?? []);
   mergeFlags(state, protocol.rules(state.answers, ctx));
+  mergeFlags(
+    state,
+    protocol.slots.filter((s) => s.critical && state.answers[s.id]?.kind === "skipped").map((s) => ({ id: `unknown_${s.id}`, level: "urgent", reason: `${s.critical} could not be ruled out` }))
+  );
   if (highestLevel(state.flags) === "emergency") {
     messages.push(...finishEmergency(state, ctx, state.flags));
     return { state, messages };
@@ -909,7 +1013,7 @@ function questionFor(slot, state, ctx) {
     if (prior) {
       return {
         kind: "question",
-        text: `Your history shows you reported ${prior.complaint.toLowerCase()} on ${prior.date}. Does this feel similar to that time?`,
+        text: `Your history shows you reported ${prior.complaint.toLowerCase()} on ${prior.date}. ${slot.question}`,
         quickReplies: ["Yes", "No", SKIP_REPLY]
       };
     }
@@ -994,7 +1098,7 @@ function prefillFromText(state, protocol, text) {
 }
 var ADVICE = {
   emergency: EMERGENCY_MESSAGE,
-  urgent: "Please see a doctor today, at a clinic, urgent care or emergency department. If you get worse before then, seek emergency care.",
+  urgent: `Please get seen by a doctor today \u2014 within the next few hours \u2014 at a clinic, urgent care or an emergency department. If any warning sign below appears, go to the emergency department or call ${EMERGENCY_NUMBER} straight away.`,
   gp: "Please book an appointment with a general physician (GP) in the next few days.",
   self_care: "From what you told me, this can usually be watched at home for now.",
   insufficient: "I don\u2019t have enough information to guide you safely. If you are worried, please speak to a doctor."
@@ -1021,13 +1125,11 @@ function computeOutcome(state, ctx) {
   let advice = ADVICE[disposition];
   if (disposition === "self_care")
     advice += ` If it is not better within ${protocol.seeGpAfterDays} day${protocol.seeGpAfterDays === 1 ? "" : "s"}, or it gets worse, see a doctor.`;
-  if ((disposition === "urgent" || disposition === "gp") && flags.length)
-    advice += ` Reason: ${joinAnd(flags.filter((f) => f.level === level || disposition === "gp").map((f) => f.reason))}.`;
   const contextNotes = [];
   if (ctx.allergies?.trim())
     contextNotes.push(`Your record lists an allergy: ${ctx.allergies.trim()}. Tell any doctor or pharmacist you see.`);
   if (ctx.activeMedicines.length)
-    contextNotes.push(`You are currently taking: ${ctx.activeMedicines.join(", ")}. Mention these to the doctor. Do not stop or change them without medical advice.`);
+    contextNotes.push(`Medicines recorded in MedNest: ${ctx.activeMedicines.join(", ")}. Tell the doctor what you are actually taking and how. Do not stop or change a medicine without medical advice.`);
   const prior = ctx.priorEpisodes.filter((e) => e.protocolId === protocol.id);
   if (prior.length)
     contextNotes.push(`You have reported this ${prior.length} time${prior.length === 1 ? "" : "s"} before (last on ${prior.map((p) => p.date).sort().pop()}). Repeated episodes are worth discussing with a doctor.`);
@@ -1061,11 +1163,15 @@ var HEADINGS = {
   insufficient: "Not enough information"
 };
 function renderOutcome(o) {
-  const lines = [`${HEADINGS[o.disposition]}`, "", "What you told me:", o.summary, "", o.advice];
+  const lines = [`${HEADINGS[o.disposition]}`, "", o.advice];
+  const reasons = o.flags.filter((f) => f.level === (o.disposition === "gp" ? "gp" : o.disposition)).map((f) => f.reason);
+  if (reasons.length && (o.disposition === "urgent" || o.disposition === "gp"))
+    lines.push("", "Why:", ...uniqText(reasons).map((r) => `\u2022 ${cap1(r)}`));
+  lines.push("", "What you told me:", o.summary);
   if (o.generalInfo.length)
     lines.push("", "General information:", ...o.generalInfo.map((s) => `\u2022 ${s}`));
   if (o.safetyNet.length)
-    lines.push("", "Get medical help sooner if:", ...o.safetyNet.map((s) => `\u2022 ${s}`));
+    lines.push("", `Go to the emergency department or call ${EMERGENCY_NUMBER} if:`, ...o.safetyNet.map((s) => `\u2022 ${s}`));
   if (o.contextNotes.length)
     lines.push("", "From your records:", ...o.contextNotes.map((s) => `\u2022 ${s}`));
   lines.push("", DISCLAIMER);
@@ -1073,6 +1179,12 @@ function renderOutcome(o) {
 }
 function dispositionHeading(d) {
   return HEADINGS[d];
+}
+function uniqText(xs) {
+  return [...new Set(xs)];
+}
+function cap1(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 function joinAnd(xs) {
   const u = [...new Set(xs)];
@@ -1482,6 +1594,25 @@ function snoozeAlarm(original, snoozeCount, now) {
     at: now.getTime() + SNOOZE_MINUTES * 6e4,
     data: { ...original.data ?? {}, snoozeCount: snoozeCount + 1 }
   };
+}
+function sortedTimes(times) {
+  return [...new Set(times.map((t) => resolveTime(t) ?? t))].sort((a, z) => a.localeCompare(z));
+}
+function scheduleIssues(m) {
+  const out = [];
+  const instr = (m.instructions ?? "").toLowerCase();
+  const flexible = /\b(any ?time|whenever|when (needed|required)|as (needed|required)|if needed|sos|prn)\b/.test(instr);
+  const bad = m.times.filter((t) => !resolveTime(t));
+  if (bad.length)
+    out.push({ kind: "unclear_time", text: `The saved time \u201C${bad.join(", ")}\u201D is not a clear clock time.` });
+  if (m.asNeeded)
+    return out;
+  if (!m.times.length) {
+    out.push({ kind: "no_times", text: flexible ? "No fixed time is recorded; the instructions say it can be taken as needed." : "No scheduled time is recorded." });
+  } else if (flexible) {
+    out.push({ kind: "conflict", text: `The record has a fixed time (${sortedTimes(m.times).filter((t) => /^\d\d:\d\d$/.test(t)).map(formatTime).join(", ")}) but the instructions also say \u201C${m.instructions}\u201D. These don\u2019t match.` });
+  }
+  return out;
 }
 
 // src/domain/followUp.ts
@@ -1955,6 +2086,34 @@ function lookupMedicineInfo(name) {
   }
   return hits.size === 1 ? [...hits][0] : null;
 }
+function identifyMedicine(name) {
+  if (!name)
+    return null;
+  const ws = words(name);
+  const text = ` ${ws.join(" ")} `;
+  for (const info of MEDICINE_INFO) {
+    const n = info.names.find((x) => text.includes(` ${x} `));
+    if (n)
+      return { info, matched: n, generic: info.names[0], certainty: "exact" };
+  }
+  for (const maxDist of [1, 2]) {
+    const hits = [];
+    for (const w of ws) {
+      if (w.length < (maxDist === 1 ? 6 : 5))
+        continue;
+      for (const info of MEDICINE_INFO) {
+        const n = info.names.find((x) => !x.includes(" ") && x.length >= 5 && Math.abs(x.length - w.length) <= maxDist && levenshtein(w, x) <= maxDist);
+        if (n && !hits.some((h) => h.info === info))
+          hits.push({ info, n });
+      }
+    }
+    if (hits.length === 1)
+      return { info: hits[0].info, matched: hits[0].n, generic: hits[0].info.names[0], certainty: maxDist === 1 ? "spelling" : "possible" };
+    if (hits.length > 1)
+      return null;
+  }
+  return null;
+}
 var USUAL_DOSE = {
   colchicine: { min: 0.5, max: 1.2, unit: "mg" },
   warfarin: { min: 0.5, max: 15, unit: "mg" },
@@ -2011,10 +2170,15 @@ var num = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 var title = (m) => `${m.name}${m.dose ? " " + m.dose : ""}`;
-var timesText = (m) => m.asNeeded ? "only when needed" : m.times.length ? m.times.map((t) => {
-  const r = resolveTime(t);
-  return r ? formatTime(r) : t;
-}).join(", ") : "no times recorded";
+var timesText = (m) => m.asNeeded ? "only when needed" : m.times.length ? sortedTimes(m.times).map((t) => /^\d\d:\d\d$/.test(t) ? formatTime(t) : t).join(", ") : "no scheduled time recorded";
+function provenance(m, d) {
+  const doc = d.documents.find((x) => x.id === m.documentId);
+  if (doc && (m.source === "document_confirmed" || doc.source && doc.source !== "manual"))
+    return `from the ${doc.type.toLowerCase()} of ${fmt(doc.docDate)}${doc.doctor ? ` (${doc.doctor})` : ""}, read automatically and confirmed by you`;
+  if (doc)
+    return `from the ${doc.type.toLowerCase()} of ${fmt(doc.docDate)}${doc.doctor ? ` (${doc.doctor})` : ""}, entered by you`;
+  return `entered by you${m.startDate ? ` on ${fmt(m.startDate)}` : ""}`;
+}
 var uniq = (xs) => [...new Set(xs)];
 function currentMeds(d) {
   const today = localDateIso(d.now);
@@ -2063,19 +2227,37 @@ function generalText(name, info) {
   return `${n} is ${info.what}, commonly used ${info.commonUse}.${info.note ? " " + info.note : ""}`;
 }
 var cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+function identityText(name) {
+  const id = identifyMedicine(name);
+  if (!id)
+    return { text: "I can\u2019t identify this medicine from its name alone. Please check the name on the box, or ask a pharmacist what it contains.", info: null };
+  const brand = id.matched !== id.generic ? ` (contains ${id.generic})` : "";
+  if (id.certainty === "possible") {
+    return {
+      text: `this may be ${cap(id.matched)}${brand}, ${id.info.what} \u2014 but the spelling is different, so please confirm the name on the box or with a pharmacist. If it is ${cap(id.matched)}, it is commonly used ${id.info.commonUse}.`,
+      info: null
+      // not certain: no safety notes or dose checks based on a guess
+    };
+  }
+  return { text: `${id.info.what}${brand}. Commonly used ${id.info.commonUse}.`, info: id.info };
+}
 function medBlock(m, d, brief, withTimes = false) {
-  const info = lookupMedicineInfo(m.name);
+  const { text, info } = identityText(m.name);
   const doc = d.documents.find((x) => x.id === m.documentId);
-  const lines = [`\u2022 ${cap(`${m.name}${m.dose ? " " + m.dose : ""}`)} \u2014 ${info ? `${info.what}. Commonly used ${info.commonUse}.` : "I don\u2019t have general information about this medicine; a pharmacist can tell you what it is."}`];
-  if (withTimes && m.times)
-    lines.push(`   Take: ${timesText(m)}${m.instructions ? `, ${m.instructions}` : ""}.`);
+  const lines = [`\u2022 ${cap(`${m.name}${m.dose ? " " + m.dose : ""}`)} \u2014 ${text}`];
+  if (withTimes && m.times) {
+    lines.push(`   Take: ${timesText(m)}${m.instructions ? ` \xB7 ${m.instructions}` : ""}.`);
+    for (const issue of scheduleIssues({ times: m.times, instructions: m.instructions ?? null, asNeeded: m.asNeeded })) {
+      if (issue.kind !== "no_times")
+        lines.push(`   \u26A0 ${issue.text} Please check with your doctor or pharmacist.`);
+    }
+  }
   if (!brief && m.id) {
-    const origin = doc ? `Prescribed${doc.doctor ? ` by ${doc.doctor}` : ""} on ${fmt(doc.docDate)}` : `Added by you${m.startDate ? ` on ${fmt(m.startDate)}` : ""}`;
-    lines.push(`   ${origin} \xB7 ${doc?.diagnosisWritten ? `diagnosis written: ${doc.diagnosisWritten}` : "no reason written"}.`);
+    lines.push(`   Saved ${provenance(m, d)} \xB7 ${doc?.diagnosisWritten ? `diagnosis written: ${doc.diagnosisWritten}` : "no reason written"}.`);
     if (info?.note)
       lines.push(`   \u26A0 ${info.note}`);
   }
-  const check = doseCheck(m.name, m.dose);
+  const check = info ? doseCheck(m.name, m.dose) : null;
   if (check)
     lines.push(`   \u26A0 ${check}`);
   return lines.join("\n");
@@ -2117,11 +2299,33 @@ function diseaseAnswer(meds, d) {
   }
   return parts.join("\n\n");
 }
-function howText(m) {
-  const parts = [`${title(m)}: ${timesText(m)}${m.instructions ? `, ${m.instructions}` : ""}.`];
+function howText(m, d) {
+  const issues = scheduleIssues(m);
+  const lines = [];
+  const noTimes = issues.find((i) => i.kind === "no_times");
+  if (noTimes) {
+    lines.push(`${cap(title(m))}: ${noTimes.text}${m.instructions ? ` The instructions say \u201C${m.instructions}\u201D.` : ""}`);
+    lines.push("I won\u2019t guess a time. Check the prescription or ask your pharmacist, then add the time in Meds so I can remind you.");
+  } else {
+    lines.push(`${cap(title(m))}: ${timesText(m)}${m.instructions ? ` \xB7 ${m.instructions}` : ""}.`);
+  }
+  for (const i of issues.filter((x) => x.kind !== "no_times"))
+    lines.push(`\u26A0 ${i.text} Please check with the prescribing doctor or a pharmacist which is right.`);
   if (!m.dose)
-    parts.push("The dose is not recorded \u2014 check the prescription.");
-  return parts.join(" ") + " This is what the prescription says; follow your doctor\u2019s instructions.";
+    lines.push("The dose is not recorded \u2014 check the prescription.");
+  const check = identifyMedicine(m.name)?.certainty === "possible" ? null : doseCheck(m.name, m.dose);
+  if (check)
+    lines.push(`\u26A0 ${check}`);
+  if (m.status === "paused")
+    lines.push("This medicine is paused in MedNest, so no reminders are set.");
+  lines.push(`(Saved ${provenance(m, d)}.)`);
+  return lines.join("\n");
+}
+function overviewText(meds, d) {
+  return meds.map((m) => [medBlock(m, d, false, true), `   Duration: ${durationText(m, d)}`].join("\n")).join("\n\n") + "\n\nGeneral information about a medicine is not the reason it was prescribed for you.";
+}
+function joinOr(xs) {
+  return xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} or ${xs[xs.length - 1]}`;
 }
 function durationText(m, d) {
   const end = effectiveEndDate(m);
@@ -2148,11 +2352,21 @@ function askCare(question, d, ctx = {}) {
   const { meds, explicit } = targetMedicines(q, d, ctx);
   const m0 = meds[0];
   const src = (ms) => uniq(ms.map((m) => m.documentId).filter((x) => !!x));
-  const asksWhy = /\b(why|what (is|are|was|were) (it|this|that|they|these|those|the \w+|\w+) for|what('?s| is| are)? .* for\b|used for|purpose|for what|kis liye|kyun)\b/.test(lower);
-  const asksHow = /\b(when|what time|how (do|should|often|many|much)|times? a day|before or after|with food|dose|dosage|kab)\b/.test(lower);
-  const asksHowLong = /\b(how long|until when|till when|end date|when (does|do|will) .* (end|finish|stop)|how many days|kitne din)\b/.test(lower);
-  const asksWho = /\b(who|which doctor|prescribed by|kis doctor)\b/.test(lower);
-  const asksDisease = /\b(disease|diseases|condition|conditions|illness|illnesses|problem|problems|diagnos\w*|bimari|beemari)\b/.test(lower);
+  let asksWhy = /\b(why|what (is|are|was|were) (it|this|that|they|these|those|the \w+|\w+) for|what('?s| is| are)? .* for\b|used for|purpose|for what|kis liye|kyun)\b/.test(lower);
+  let asksHowLong = /\b(how long|until when|till when|end date|when (does|do|will) .* (end|finish|stop)|how many days|kitne din)\b/.test(lower);
+  let asksHow = !asksHowLong && /\b(when|what time|how (do|should|often|many|much)|times? a day|before or after|with food|dose|dosage|schedule|timing|kab)\b/.test(lower);
+  let asksWho = /\b(who|which doctor|prescribed by|kis doctor)\b/.test(lower);
+  let asksDisease = /\b(disease|diseases|condition|conditions|illness|illnesses|problem|problems|diagnos\w*|bimari|beemari)\b/.test(lower);
+  const hasIntent = asksWhy || asksHow || asksHowLong || asksWho || asksDisease;
+  if (!hasIntent && explicit && ctx.pendingIntent) {
+    asksWhy = ctx.pendingIntent === "why";
+    asksHow = ctx.pendingIntent === "when";
+    asksHowLong = ctx.pendingIntent === "howLong";
+    asksWho = ctx.pendingIntent === "who";
+    asksDisease = ctx.pendingIntent === "disease";
+  }
+  const intent = asksDisease ? "disease" : asksHowLong ? "howLong" : asksWho ? "who" : asksHow && !asksWhy ? "when" : asksWhy ? "why" : null;
+  const bareName = explicit && !intent && q.split(/\s+/).length <= 4 && !/\b(i|i'm|im|am|taking|take|started)\b/.test(lower);
   const asksList = /\b(what|which|current|my|all|list)\b.*\b(medicine|medicines|meds|tablets|pills|medication|dawai|dawa)\b|\btaking now\b|\bdo i (eat|take)\b/.test(lower);
   const pluralList = /\b(medicines|meds|tablets|pills|all|list|what medicine|which medicine)\b/.test(lower);
   const medicineAnswer = () => {
@@ -2165,7 +2379,9 @@ function askCare(question, d, ctx = {}) {
       return { answer: doc ? `${title(m0)} was prescribed${doc.doctor ? ` by ${doc.doctor}` : " (no doctor name recorded)"} on ${fmt(doc.docDate)}.` : `${title(m0)} was entered by you; no prescription is linked.`, sources: src([m0]), medicineId: m0.id };
     }
     if (asksHow && !asksWhy)
-      return { answer: meds.map(howText).join(" "), sources: src(meds), medicineId: m0.id };
+      return { answer: meds.map((m) => howText(m, d)).join("\n\n"), sources: src(meds), medicineId: meds.length === 1 ? m0.id : null, suggestions: ["What is it for?", "How long do I take it?"] };
+    if (bareName)
+      return { answer: overviewText(meds, d), sources: src(meds), medicineId: meds.length === 1 ? m0.id : null, suggestions: ["What is it for?", "When do I take it?", "How long do I take it?"] };
     if (asksDisease)
       return { answer: diseaseAnswer(meds, d), sources: src(meds), medicineId: meds.length === 1 ? m0.id : null, explainedIds: uniq([...ctx.explainedIds ?? [], ...meds.map((m) => m.id)]), suggestions: ["When do I take them?", "Next follow-up?"] };
     if (asksWhy || /\bwhat (is|are)\b|\btell me about\b|\babout\b/.test(lower)) {
@@ -2236,11 +2452,33 @@ ${lines.join("\n")}`;
     const today = localDateIso(d.now);
     const next = d.appointments.filter((a) => a.status === "planned" && a.date && a.date >= today).sort((a, z) => a.date.localeCompare(z.date))[0];
     const proposed = d.appointments.filter((a) => a.status === "proposed");
-    if (next)
-      return { answer: `Next follow-up: ${fmt(next.date)}${next.time ? " at " + next.time : ""}${next.doctor ? " with " + next.doctor : ""}${next.reason ? " \u2014 " + next.reason : ""}.`, sources: [] };
+    const lines = [];
+    if (next) {
+      const doc = d.documents.find((x) => x.id === next.documentId);
+      const days = Math.round(((/* @__PURE__ */ new Date(next.date + "T00:00:00")).getTime() - (/* @__PURE__ */ new Date(today + "T00:00:00")).getTime()) / 864e5);
+      const when = days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
+      const reason = next.reason && next.reason.toLowerCase() !== "follow-up" ? next.reason.replace(/^follow-up:\s*/i, "") : null;
+      const doctor = next.doctor ?? doc?.doctor ?? null;
+      lines.push(`Next follow-up: ${fmt(next.date)}${next.time ? ` at ${next.time}` : ""} (${when}).`);
+      lines.push(`\u2022 Doctor: ${doctor ?? "not recorded"}`);
+      lines.push(`\u2022 Reason: ${reason ?? (next.sourceText ? `the document says \u201C${next.sourceText}\u201D` : "not recorded")}`);
+      if (doc)
+        lines.push(`\u2022 From: the ${doc.type.toLowerCase()} of ${fmt(doc.docDate)}`);
+      const basis = {
+        written_date: "the date written on the document",
+        relative_to_document: "calculated from the document date and confirmed by you",
+        needs_user: "chosen by you",
+        manual: "added by you"
+      };
+      lines.push(`\u2022 Date: ${basis[next.basis ?? "manual"] ?? "added by you"}`);
+      lines.push("\u2022 Status: planned \u2014 MedNest will remind you the evening before and on the day.");
+      lines.push("This is a reminder in MedNest, not a booking. Contact the clinic to book or confirm the appointment.");
+    }
     if (proposed.length)
-      return { answer: "There is a follow-up waiting for you to confirm the date. Open Follow-ups to confirm it.", sources: [] };
-    return { answer: "No follow-up is planned.", sources: [] };
+      lines.push(`${next ? "\n" : ""}${proposed.length} follow-up${proposed.length > 1 ? "s are" : " is"} waiting for you to confirm the date \u2014 open Follow-ups to confirm.`);
+    if (!lines.length)
+      return { answer: "No follow-up is planned. You can add one in Follow-ups.", sources: [] };
+    return { answer: lines.join("\n"), sources: next?.documentId ? [next.documentId] : [] };
   }
   if (/\ballerg/.test(lower))
     return { answer: d.allergies ? `Recorded allergies: ${d.allergies}.` : `No allergies are recorded for ${d.profileName}. You can add them in the profile.`, sources: [] };
@@ -2284,8 +2522,9 @@ ${lines.join("\n")}`;
   const implicit = medicineAnswer();
   if (implicit)
     return implicit;
-  if ((asksWhy || asksHow || asksHowLong) && currentMeds(d).length > 1) {
-    return { answer: `Which medicine do you mean? ${d.profileName} takes ${currentMeds(d).map((m) => m.name).join(", ")}.`, sources: [], suggestions: currentMeds(d).map((m) => `What is ${m.name.split(/\s+/)[0]} for?`) };
+  if (intent && currentMeds(d).length > 1) {
+    const names = currentMeds(d).map((m) => m.name);
+    return { answer: `Which medicine do you mean \u2014 ${joinOr(names)}? Or ask about \u201Call of them\u201D.`, sources: [], pendingIntent: intent, suggestions: [...names, "All of them"] };
   }
   if (!d.documents.length && !d.medicines.length) {
     return { answer: `There are no records for ${d.profileName} yet. Add a prescription or report with \uFF0B, then ask me about medicines, results or follow-ups.`, sources: [], suggestions: SUGGEST };
@@ -2316,6 +2555,7 @@ export {
   effectiveEndDate,
   formatTime,
   historyEntries,
+  identifyMedicine,
   localDateIso,
   parseFollowUp,
   parseFrequency,
@@ -2329,7 +2569,9 @@ export {
   resolveTime,
   respond,
   scheduleBlockers,
+  scheduleIssues,
   snoozeAlarm,
+  sortedTimes,
   startTriage,
   todaysDoses,
   upcomingAppointments

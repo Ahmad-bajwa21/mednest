@@ -200,3 +200,34 @@ export function snoozeAlarm(original: ScheduledAlarm, snoozeCount: number, now: 
     data: { ...(original.data ?? {}), snoozeCount: snoozeCount + 1 },
   };
 }
+
+/** Times in chronological order, as clock times ("8:00 AM"). */
+export function sortedTimes(times: string[]): string[] {
+  return [...new Set(times.map((t) => resolveTime(t) ?? t))].sort((a, z) => a.localeCompare(z));
+}
+
+export type ScheduleIssue =
+  | { kind: 'no_times'; text: string }
+  | { kind: 'conflict'; text: string }
+  | { kind: 'unclear_time'; text: string };
+
+/**
+ * Problems with what is saved for WHEN to take a medicine. Nothing is guessed: a
+ * missing schedule is reported as missing, and contradictory instructions (fixed times
+ * plus "any time" / "when needed") are reported as a conflict to check with the
+ * prescriber or pharmacist.
+ */
+export function scheduleIssues(m: Pick<SchedulableMedicine, 'times' | 'instructions' | 'asNeeded'>): ScheduleIssue[] {
+  const out: ScheduleIssue[] = [];
+  const instr = (m.instructions ?? '').toLowerCase();
+  const flexible = /\b(any ?time|whenever|when (needed|required)|as (needed|required)|if needed|sos|prn)\b/.test(instr);
+  const bad = m.times.filter((t) => !resolveTime(t));
+  if (bad.length) out.push({ kind: 'unclear_time', text: `The saved time “${bad.join(', ')}” is not a clear clock time.` });
+  if (m.asNeeded) return out;
+  if (!m.times.length) {
+    out.push({ kind: 'no_times', text: flexible ? 'No fixed time is recorded; the instructions say it can be taken as needed.' : 'No scheduled time is recorded.' });
+  } else if (flexible) {
+    out.push({ kind: 'conflict', text: `The record has a fixed time (${sortedTimes(m.times).filter((t) => /^\d\d:\d\d$/.test(t)).map(formatTime).join(', ')}) but the instructions also say “${m.instructions}”. These don’t match.` });
+  }
+  return out;
+}

@@ -24,3 +24,5 @@ export { proposeFollowUp, parseFollowUp, appointmentAlarms } from '../domain/fol
 export { todaysDoses, pastDoses, upcomingAppointments, pendingConfirmations, historyEntries } from '../domain/care';
 export { askCare } from '../domain/askCare';
 export { doseCheck } from '../ai/medicineInfo';
+export { scheduleIssues, sortedTimes } from '../domain/schedule';
+export { identifyMedicine } from '../ai/medicineInfo';

@@ -9,7 +9,7 @@
 import type { Option } from './parse';
 import type { RedFlag } from './redFlags';
 
-export const PROTOCOL_VERSION = 'protocols-0.1-draft';
+export const PROTOCOL_VERSION = 'protocols-0.2-draft';
 
 export type SlotKind = 'duration' | 'scale' | 'choice' | 'multi' | 'yesno' | 'text';
 
@@ -51,6 +51,12 @@ export interface Slot {
   askIf?: (a: Answers, ctx: TriageContext) => boolean;
   /** May be filled from the patient's opening message. */
   prefillable?: boolean;
+  /**
+   * A red-flag question. If the patient answers "not sure", the warning sign cannot be
+   * ruled out, so the outcome is raised to at least "see a doctor today" (engine).
+   * The text names the sign, e.g. "neck stiffness".
+   */
+  critical?: string;
 }
 
 export interface Protocol {
@@ -238,26 +244,76 @@ const headache: Protocol = {
       prefillable: true,
       options: [
         { value: 'fever', label: 'Fever', aliases: /fever|temperature|bukhar/ },
-        { value: 'stiff_neck', label: 'Stiff neck', aliases: /stiff neck|neck (is )?stiff/ },
         { value: 'vomiting', label: 'Vomiting', aliases: /vomit|throwing up|ulti/ },
+        { value: 'light', label: 'Bright light bothers me', aliases: /light (bothers|hurts)|sensitive to light|photophob/ },
         { value: 'vision', label: 'Vision changes', aliases: /vision|blurr|double vision|seeing/ },
+        { value: 'stiff_neck', label: 'Stiff neck', aliases: /stiff neck|neck (is )?stiff/ },
         { value: 'weakness', label: 'Weakness or numbness', aliases: /weak|numb/ },
         { value: 'confusion', label: 'Confusion', aliases: /confus|disorient/ },
-        { value: 'light', label: 'Bright light bothers me', aliases: /light (bothers|hurts)|sensitive to light/ },
         NONE,
       ],
     },
+    // Red-flag questions, asked directly (not left to a checklist) when relevant.
+    {
+      id: 'neck',
+      kind: 'yesno',
+      label: 'Stiff neck',
+      critical: 'neck stiffness',
+      question: 'Is your neck stiff, or painful when you bend your head forward (chin to chest)?',
+      askIf: (a) => !has(a, 'associated', 'stiff_neck') && (has(a, 'associated', 'fever') || (scaleOf(a, 'severity') ?? 0) >= 7),
+    },
+    {
+      id: 'rash',
+      kind: 'yesno',
+      label: 'New rash',
+      critical: 'a rash',
+      question: 'Do you have a new rash — especially spots that don’t fade when you press a glass against them?',
+      askIf: (a) => has(a, 'associated', 'fever'),
+    },
+    {
+      id: 'neuro',
+      kind: 'yesno',
+      label: 'Confusion, drowsiness, weakness or speech problems',
+      critical: 'confusion, weakness or speech problems',
+      question: 'Any confusion, unusual drowsiness, weakness or numbness, or difficulty speaking?',
+      askIf: (a) => !has(a, 'associated', 'weakness') && !has(a, 'associated', 'confusion') && (has(a, 'associated', 'fever') || (scaleOf(a, 'severity') ?? 0) >= 7 || choiceOf(a, 'speed') === 'sudden'),
+    },
+    {
+      id: 'vomit_repeat',
+      kind: 'yesno',
+      label: 'Repeated vomiting',
+      question: 'Have you vomited more than once?',
+      askIf: (a) => has(a, 'associated', 'vomiting'),
+    },
     { id: 'injury', kind: 'yesno', label: 'Head injury', question: 'Did you hit or injure your head recently?' },
     previous('headaches'),
+    {
+      id: 'different',
+      kind: 'yesno',
+      label: 'Different from usual headaches',
+      critical: 'a change from your usual headaches',
+      question: 'Is this headache different from your usual ones — much worse, a new kind of pain, or with new symptoms?',
+      askIf: (a) => yes(a, 'previous'),
+    },
   ],
   rules: (a) => {
     const out: RedFlag[] = [];
-    if (choiceOf(a, 'speed') === 'sudden' && (scaleOf(a, 'severity') ?? 0) >= 8) out.push(flag('thunderclap', 'emergency', 'a sudden, very severe headache'));
-    if (has(a, 'associated', 'fever') && has(a, 'associated', 'stiff_neck')) out.push(flag('meningism', 'emergency', 'headache with fever and a stiff neck'));
-    if (has(a, 'associated', 'weakness') || has(a, 'associated', 'confusion')) out.push(flag('neuro', 'emergency', 'headache with weakness, numbness or confusion'));
+    const sev = scaleOf(a, 'severity') ?? 0;
+    const fever = has(a, 'associated', 'fever');
+    const neck = has(a, 'associated', 'stiff_neck') || yes(a, 'neck');
+    const neuro = has(a, 'associated', 'weakness') || has(a, 'associated', 'confusion') || yes(a, 'neuro');
+    if (choiceOf(a, 'speed') === 'sudden' && sev >= 8) out.push(flag('thunderclap', 'emergency', 'a sudden, very severe headache'));
+    if (fever && neck) out.push(flag('meningism', 'emergency', 'headache with fever and a stiff neck'));
+    if (fever && yes(a, 'rash')) out.push(flag('fever_rash', 'emergency', 'headache with fever and a rash'));
+    if (neuro) out.push(flag('neuro', 'emergency', 'headache with confusion, drowsiness, weakness or speech problems'));
+    if (neck && !fever) out.push(flag('neck', 'urgent', 'headache with a stiff neck'));
+    if (fever && sev >= 7) out.push(flag('fever_severe_headache', 'urgent', 'a severe headache with fever'));
+    if (fever && has(a, 'associated', 'light')) out.push(flag('fever_light', 'urgent', 'headache with fever and sensitivity to light'));
+    if (yes(a, 'vomit_repeat')) out.push(flag('vomit_repeat', 'urgent', 'headache with repeated vomiting'));
     if (has(a, 'associated', 'vision')) out.push(flag('vision', 'urgent', 'headache with changes in vision'));
     if (yes(a, 'injury')) out.push(flag('head_injury', 'urgent', 'a headache after a head injury'));
-    if ((scaleOf(a, 'severity') ?? 0) >= 8) out.push(flag('severe_headache', 'urgent', 'a severe headache'));
+    if (yes(a, 'different')) out.push(flag('new_pattern', 'urgent', 'a headache that is different from your usual ones'));
+    if (sev >= 8 && !(fever && sev >= 7)) out.push(flag('severe_headache', 'urgent', 'a severe headache'));
     return out;
   },
   generalInfo: [
@@ -265,10 +321,10 @@ const headache: Protocol = {
     'Regular meals and sleep can help; note any triggers (screens, missed meals, stress).',
   ],
   safetyNet: [
-    'The headache is sudden and the worst you have ever had',
-    'You develop a stiff neck with fever, or a rash',
-    'You have weakness, numbness, trouble speaking or confusion',
-    'It follows a head injury, or keeps getting worse',
+    'The headache becomes sudden and the worst you have ever had',
+    'You develop a stiff neck, or a rash that does not fade when pressed with a glass',
+    'You become confused or very drowsy, or have weakness, numbness or trouble speaking',
+    'You keep vomiting, have a seizure, or the headache follows a head injury',
   ],
 };
 
@@ -307,15 +363,43 @@ const fever: Protocol = {
         { value: 'diarrhea', label: 'Diarrhoea or vomiting', aliases: /diarrh|vomit|loose motion|dast|ulti/ },
         { value: 'breathing', label: 'Hard to breathe', aliases: /breath/ },
         { value: 'body_ache', label: 'Body aches', aliases: /body ache|joint pain|muscle pain/ },
+        { value: 'headache', label: 'Headache', aliases: /headache|head ?ache|sar ?dard/ },
         NONE,
       ],
+    },
+    {
+      id: 'neck',
+      kind: 'yesno',
+      label: 'Stiff neck',
+      critical: 'neck stiffness',
+      question: 'Is your neck stiff, or painful when you bend your head forward (chin to chest)?',
+      askIf: (a) => has(a, 'associated', 'headache') && !has(a, 'associated', 'stiff_neck'),
+    },
+    {
+      id: 'rash_glass',
+      kind: 'yesno',
+      label: 'Rash that doesn’t fade',
+      critical: 'a rash that doesn’t fade',
+      question: 'Does the rash stay visible when you press a clear glass firmly against it?',
+      askIf: (a) => has(a, 'associated', 'rash'),
+    },
+    {
+      id: 'neuro',
+      kind: 'yesno',
+      label: 'Confusion or unusual drowsiness',
+      critical: 'confusion or unusual drowsiness',
+      question: 'Is there any confusion or unusual drowsiness (hard to wake)?',
+      askIf: (a) => has(a, 'associated', 'headache') || choiceOf(a, 'temperature') === 'gt40',
     },
     { id: 'drinking', kind: 'yesno', label: 'Drinking normally', question: 'Are you able to drink fluids normally?' },
     previous('a fever'),
   ],
   rules: (a, ctx) => {
     const out: RedFlag[] = [];
-    if (has(a, 'associated', 'stiff_neck')) out.push(flag('meningism', 'emergency', 'fever with a stiff neck'));
+    if (has(a, 'associated', 'stiff_neck') || yes(a, 'neck')) out.push(flag('meningism', 'emergency', 'fever with a stiff neck'));
+    if (yes(a, 'rash_glass')) out.push(flag('nonblanching_rash', 'emergency', 'fever with a rash that does not fade when pressed'));
+    if (yes(a, 'neuro')) out.push(flag('fever_neuro', 'emergency', 'fever with confusion or unusual drowsiness'));
+    if (has(a, 'associated', 'headache') && choiceOf(a, 'temperature') && ['39_40', 'gt40'].includes(choiceOf(a, 'temperature')!)) out.push(flag('fever_headache_high', 'urgent', 'a high fever with headache'));
     if (has(a, 'associated', 'breathing')) out.push(flag('fever_breathing', 'emergency', 'fever with difficulty breathing'));
     if (has(a, 'associated', 'rash')) out.push(flag('fever_rash', 'urgent', 'fever with a rash'));
     if (choiceOf(a, 'temperature') === 'gt40') out.push(flag('very_high_fever', 'urgent', 'a temperature above 40°C'));
@@ -487,6 +571,16 @@ const general: Protocol = {
   generalInfo: ['Rest, drink enough fluids, and keep a short note of how the symptoms change to show your doctor.'],
   safetyNet: ['The symptoms get much worse or new symptoms appear', 'You feel very unwell, faint, or confused'],
 };
+
+// Asked last in every protocol: what the patient has already taken (patient-reported;
+// feeds the doctor visit summary). Never used to recommend anything.
+const remedies: Slot = {
+  id: 'remedies',
+  kind: 'text',
+  label: 'Medicines taken for this',
+  question: 'Have you taken any medicine for this so far? If yes, which one and when? Say “none” if not.',
+};
+for (const p of [abdominal, headache, fever, cough, gut, general]) p.slots.push(remedies);
 
 export const PROTOCOLS: Protocol[] = [abdominal, headache, fever, cough, gut, general];
 export const GENERAL_PROTOCOL = general;

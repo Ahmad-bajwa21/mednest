@@ -42,6 +42,8 @@ function calcAge(birthYear) {
 function addDays(iso, n) { return core.addDaysLocal(iso, n); }
 function num(v) { const n = parseFloat(v); return isNaN(n) ? null : n; }
 const timeLabel = (t) => { const r = core.resolveTime(t); return r ? core.formatTime(r) : t; };
+// Medicine times, always in chronological order.
+const timesSorted = (times) => core.sortedTimes(times || []).map(timeLabel);
 
 /* ============================== store ============================== */
 const KEY = 'mednest.v1';
@@ -632,7 +634,7 @@ function screenDocDetail(id, docId) {
       ${doc.diagnosisWritten ? `<div class="card"><div class="caption">Diagnosis written by the doctor</div>${esc(doc.diagnosisWritten)}</div>` : ''}
       <h2 class="sec">In simple words</h2><div class="card">${esc(simple)}</div>
       ${res.length ? `<h2 class="sec">Results</h2><div class="card">${res.map((r) => { const v = num(r.value), lo = num(r.rangeLow), hi = num(r.rangeHigh); const oor = v != null && ((lo != null && v < lo) || (hi != null && v > hi)); return `<div class="row" style="justify-content:space-between"><span>${esc(r.test)}</span><span class="${oor ? 'pill warn' : ''}">${esc(r.value)}${r.unit ? ' ' + esc(r.unit) : ''}</span></div>`; }).join('<hr class="sep">')}</div>` : ''}
-      ${meds.length ? `<h2 class="sec">Medicines</h2><div class="card">${meds.map((m) => `<div class="row link-row" style="justify-content:space-between" data-go="#/profile/${id}/medicine/${m.id}"><span>${esc(m.name)} ${esc(m.dose || '')}</span><span class="caption">${(m.times || []).map(timeLabel).join(', ') || (m.asNeeded ? 'when needed' : '—')} ›</span></div>`).join('<hr class="sep">')}</div>` : ''}
+      ${meds.length ? `<h2 class="sec">Medicines</h2><div class="card">${meds.map((m) => `<div class="row link-row" style="justify-content:space-between" data-go="#/profile/${id}/medicine/${m.id}"><span>${esc(m.name)} ${esc(m.dose || '')}</span><span class="caption">${timesSorted(m.times).join(', ') || (m.asNeeded ? 'when needed' : '—')} ›</span></div>`).join('<hr class="sep">')}</div>` : ''}
       ${compare.length ? `<h2 class="sec">Compared with earlier</h2><div class="card">${compare.map((c) => `<div>${esc(c)}</div>`).join('')}</div>` : ''}
       ${doc.ocrText ? `<details class="card"><summary>Text read from the page</summary><pre class="ocr">${esc(doc.ocrText)}</pre></details>` : ''}
       <div class="disclaimer">${DISCLAIMER}</div>
@@ -768,7 +770,7 @@ function medCard(id, m) {
   const st = medStatus(m);
   const needs = (st === 'active' || st === 'pending') && core.scheduleBlockers(m).length > 0;
   const end = core.effectiveEndDate(m);
-  return `<div class="card link" data-go="#/profile/${id}/medicine/${m.id}" ${needs ? 'style="border-color:var(--warn)"' : ''}><div class="grow"><div class="row" style="justify-content:space-between"><span class="name">${esc(m.name)} ${esc(m.dose || '')}</span><span class="pill ${needs ? 'warn' : st === 'active' ? 'ok' : ''}">${needs ? 'Needs details' : STATUS_LABEL[st]}</span></div><div class="list-sub">${m.asNeeded ? 'When needed' : (m.times || []).map(timeLabel).join(' · ') || 'No times set'}</div><div class="caption">${end ? 'Until ' + fmtDate(end) : 'No end date'}${m.instructions ? ' · ' + esc(m.instructions) : ''}</div></div><span class="arrow">›</span></div>`;
+  return `<div class="card link" data-go="#/profile/${id}/medicine/${m.id}" ${needs ? 'style="border-color:var(--warn)"' : ''}><div class="grow"><div class="row" style="justify-content:space-between"><span class="name">${esc(m.name)} ${esc(m.dose || '')}</span><span class="pill ${needs ? 'warn' : st === 'active' ? 'ok' : ''}">${needs ? 'Needs details' : STATUS_LABEL[st]}</span></div><div class="list-sub">${m.asNeeded ? 'When needed' : timesSorted(m.times).join(' · ') || 'No times set'}</div><div class="caption">${end ? 'Until ' + fmtDate(end) : 'No end date'}${m.instructions ? ' · ' + esc(m.instructions) : ''}</div></div><span class="arrow">›</span></div>`;
 }
 function screenMeds(id) {
   const p = getProfile(id);
@@ -785,6 +787,7 @@ function screenMedicine(id, mid, editing = false) {
   const st = medStatus(m);
   const blockers = core.scheduleBlockers(m);
   const doseWarn = core.doseCheck(m.name, m.dose);
+  const schedWarn = core.scheduleIssues(m).filter((i) => i.kind === 'conflict' || i.kind === 'unclear_time');
   const end = core.effectiveEndDate(m);
   const f = window.__medForm = editing ? (window.__medForm && window.__medForm.id === mid ? window.__medForm : { id: mid, name: m.name, dose: m.dose || '', times: [...m.times], durationDays: m.durationDays ? String(m.durationDays) : '', startDate: m.startDate || '', instructions: m.instructions || '', asNeeded: !!m.asNeeded }) : null;
   const custom = f ? f.times.filter((t) => !TIME_SLOTS.includes(t)) : [];
@@ -793,11 +796,12 @@ function screenMedicine(id, mid, editing = false) {
     <div class="screen">
       <div class="card">
         <div class="row" style="justify-content:space-between"><span class="name">${STATUS_LABEL[st]}</span><span class="caption">${m.source === 'document_confirmed' ? 'From prescription · confirmed by you' : 'Entered by you'}</span></div>
-        <div class="list-sub">${m.asNeeded ? 'Take when needed — no timed reminders.' : (m.times || []).map(timeLabel).join(' · ') || 'No times set'}</div>
+        <div class="list-sub">${m.asNeeded ? 'Take when needed — no timed reminders.' : timesSorted(m.times).join(' · ') || 'No times set'}</div>
         <div class="list-sub">${m.dose ? 'Dose: ' + esc(m.dose) : 'Dose not set'}${m.instructions ? ' · ' + esc(m.instructions) : ''}</div>
         <div class="caption">${m.startDate ? 'From ' + fmtDate(m.startDate) : 'Start date not set'}${end ? ' to ' + fmtDate(end) : ' · No end date written — reminders continue until you stop them'}</div>
         ${m.documentId && getDoc(m.documentId) ? `<a class="inline" href="#/profile/${id}/doc/${m.documentId}">View source document</a>` : ''}
       </div>
+      ${schedWarn.map((i) => `<div class="card" style="border-color:var(--warn);color:var(--warn)">⚠ ${esc(i.text)} Please check with your doctor or pharmacist, then edit the schedule.</div>`).join('')}
       ${doseWarn ? `<div class="card" style="border-color:var(--warn);color:var(--warn)">⚠ ${esc(doseWarn)}</div>` : ''}
       ${blockers.length && (st === 'active' || st === 'pending') ? `<div class="card"style="border-color:var(--warn)"><div class="name" style="color:var(--warn)">Reminders not set yet</div>${blockers.map((b) => `<div class="list-sub">• ${esc(b)}</div>`).join('')}<div class="caption" style="margin-top:6px">Check the prescription or ask your doctor or pharmacist, then add the missing details.</div>${!editing ? '<button class="btn primary" id="m-edit2">Add details</button>' : ''}</div>` : ''}
       ${editing ? `
@@ -976,7 +980,7 @@ function screenSummary(id) {
       <div class="card" id="docsum">
         <div class="name" style="font-size:18px">${esc(p.name)} · ${esc(p.sex || '-')}${age != null ? ' · ' + age : ''}${p.bloodGroup ? ' · ' + esc(p.bloodGroup) : ''}</div>
         <div class="muted">Allergies: ${esc(p.allergies || 'none recorded')}</div>
-        <h2 class="sec">Current medicines</h2>${meds.length ? meds.map((m) => `<div>${esc(m.name)} ${esc(m.dose || '')} — ${m.asNeeded ? 'when needed' : (m.times || []).map(timeLabel).join(', ') || '—'}${medStatus(m) !== 'active' ? ` (${STATUS_LABEL[medStatus(m)].toLowerCase()})` : ''}</div>`).join('') : '<div class="muted">None</div>'}
+        <h2 class="sec">Current medicines</h2>${meds.length ? meds.map((m) => `<div>${esc(m.name)} ${esc(m.dose || '')} — ${m.asNeeded ? 'when needed' : timesSorted(m.times).join(', ') || '—'}${medStatus(m) !== 'active' ? ` (${STATUS_LABEL[medStatus(m)].toLowerCase()})` : ''}</div>`).join('') : '<div class="muted">None</div>'}
         ${doses.length ? `<div class="caption" style="margin-top:6px">Doses marked taken in the last 14 days: ${taken} of ${doses.length} (patient-reported).</div>` : ''}
         <h2 class="sec">Recent results</h2>${results.length ? results.map((r) => `<div>${esc(r.test)} ${esc(r.value)}${r.unit ? ' ' + esc(r.unit) : ''} (${fmtDate(r.docDate)})</div>`).join('') : '<div class="muted">None</div>'}
         ${episodes.length ? `<h2 class="sec">Recent symptoms (patient-reported)</h2>${episodes.map((e) => `<div>${fmtDate(e.createdAt.slice(0, 10))}: ${esc(e.complaint)} — ${esc(DISPOSITION_LABEL[e.disposition] || '')}</div>`).join('')}` : ''}
@@ -1058,8 +1062,16 @@ function wire() {
     const submit = (text) => {
       if (!text?.trim()) return;
       const chat = window.__chat;
-      const res = askRecords(id, text, { lastMedicineId: chat.lastMedicineId });
+      let res;
+      try {
+        res = askRecords(id, text, { lastMedicineId: chat.lastMedicineId, explainedIds: chat.explainedIds, pendingIntent: chat.pendingIntent });
+      } catch (e) {
+        // Never show a misleading "not found" when reading the records failed.
+        res = { answer: 'Sorry — I couldn’t read the saved records just now, so I can’t answer reliably. Nothing was changed. Please try again, or open Meds to see your medicines directly.', sources: [] };
+      }
       if (res.medicineId) chat.lastMedicineId = res.medicineId;
+      if (res.explainedIds) chat.explainedIds = res.explainedIds;
+      chat.pendingIntent = res.pendingIntent || null;
       chat.log.push({ role: 'user', text });
       chat.log.push({ role: 'bot', text: res.answer, sources: res.sources, suggestions: res.suggestions, emergency: res.emergency, addMedicine: res.addMedicine });
       renderAsk(id);

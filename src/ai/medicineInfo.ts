@@ -111,6 +111,44 @@ export function lookupMedicineInfo(name: string | null | undefined): MedicineInf
   return hits.size === 1 ? [...hits][0]! : null;
 }
 
+export interface MedicineMatch {
+  info: MedicineInfo;
+  /** The name in our list that matched (brand or generic). */
+  matched: string;
+  /** Active ingredient (generic name). */
+  generic: string;
+  /** exact / one-letter spelling difference = same medicine; possible = please confirm. */
+  certainty: 'exact' | 'spelling' | 'possible';
+}
+
+/**
+ * Identify a medicine from the name as written. A two-letter difference (e.g. "Mitika"
+ * vs the brand "Myteka") is returned as `possible`, so the user is asked to confirm the
+ * name on the box or with a pharmacist instead of us assuming.
+ */
+export function identifyMedicine(name: string | null | undefined): MedicineMatch | null {
+  if (!name) return null;
+  const ws = words(name);
+  const text = ` ${ws.join(' ')} `;
+  for (const info of MEDICINE_INFO) {
+    const n = info.names.find((x) => text.includes(` ${x} `));
+    if (n) return { info, matched: n, generic: info.names[0]!, certainty: 'exact' };
+  }
+  for (const maxDist of [1, 2] as const) {
+    const hits: Array<{ info: MedicineInfo; n: string }> = [];
+    for (const w of ws) {
+      if (w.length < (maxDist === 1 ? 6 : 5)) continue;
+      for (const info of MEDICINE_INFO) {
+        const n = info.names.find((x) => !x.includes(' ') && x.length >= 5 && Math.abs(x.length - w.length) <= maxDist && levenshtein(w, x) <= maxDist);
+        if (n && !hits.some((h) => h.info === info)) hits.push({ info, n });
+      }
+    }
+    if (hits.length === 1) return { info: hits[0]!.info, matched: hits[0]!.n, generic: hits[0]!.info.names[0]!, certainty: maxDist === 1 ? 'spelling' : 'possible' };
+    if (hits.length > 1) return null; // ambiguous: do not pick one
+  }
+  return null;
+}
+
 /**
  * Usual amount PER DOSE for adults (generous ranges). Used only to ask the user to
  * double-check an entry that looks like a typo (e.g. colchicine "5 mg" instead of

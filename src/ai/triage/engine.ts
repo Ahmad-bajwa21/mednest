@@ -10,7 +10,7 @@
 //   5. the outcome (disposition) is computed by rules, then summarised by template.
 // The optional `interpret` hook lets the on-device model map an answer the parsers could
 // not read onto the slot's ALLOWED options — it can never add values or advice.
-import { detectRedFlags, highestLevel, sortFlags, EMERGENCY_MESSAGE, SELF_HARM_MESSAGE, type FlagLevel, type RedFlag } from './redFlags';
+import { detectRedFlags, highestLevel, sortFlags, EMERGENCY_MESSAGE, EMERGENCY_NUMBER, SELF_HARM_MESSAGE, type FlagLevel, type RedFlag } from './redFlags';
 import { isSkip, parseChoice, parseDuration, parseMulti, parseSeverity, parseYesNo } from './parse';
 import {
   GENERAL_PROTOCOL,
@@ -51,6 +51,8 @@ export interface TriageState {
   /** Times the current question was re-asked because the answer was not understood. */
   retries: number;
   flags: RedFlag[];
+  /** Warning signs found in the patient's own words (kept for the whole check). */
+  textFlags?: RedFlag[];
   done: boolean;
   disposition: Disposition | null;
   transcript: Turn[];
@@ -100,6 +102,7 @@ export function startTriage(ctx: TriageContext): { state: TriageState; messages:
     pendingSlot: null,
     retries: 0,
     flags: [],
+    textFlags: [],
     done: false,
     disposition: null,
     transcript: [],
@@ -122,7 +125,10 @@ export async function respond(
 
   // 1. Warning signs first, on every message — even after the assessment ended.
   const free = detectRedFlags(input);
-  if (free.length) mergeFlags(state, free);
+  if (free.length) {
+    state.textFlags = [...(state.textFlags ?? []), ...free];
+    mergeFlags(state, free);
+  }
   if (highestLevel(free) === 'emergency') {
     messages.push(...finishEmergency(state, ctx, free));
     return { state, messages };
@@ -192,7 +198,18 @@ export async function respond(
 
   // 5. Protocol rules after every answer.
   const protocol = currentProtocol(state);
+  // Rule flags are recomputed from ALL answers each turn (a later answer can refine an
+  // earlier one); warning signs from the patient's own words are always kept.
+  state.flags = [];
+  mergeFlags(state, state.textFlags ?? []);
   mergeFlags(state, protocol.rules(state.answers, ctx));
+  // A warning-sign question answered "not sure" cannot be ruled out: at least "today".
+  mergeFlags(
+    state,
+    protocol.slots
+      .filter((s) => s.critical && state.answers[s.id]?.kind === 'skipped')
+      .map((s) => ({ id: `unknown_${s.id}`, level: 'urgent' as const, reason: `${s.critical} could not be ruled out` })),
+  );
   if (highestLevel(state.flags) === 'emergency') {
     messages.push(...finishEmergency(state, ctx, state.flags));
     return { state, messages };
@@ -263,7 +280,7 @@ function questionFor(slot: Slot, state: TriageState, ctx: TriageContext): Assist
     if (prior) {
       return {
         kind: 'question',
-        text: `Your history shows you reported ${prior.complaint.toLowerCase()} on ${prior.date}. Does this feel similar to that time?`,
+        text: `Your history shows you reported ${prior.complaint.toLowerCase()} on ${prior.date}. ${slot.question}`,
         quickReplies: ['Yes', 'No', SKIP_REPLY],
       };
     }
@@ -352,7 +369,7 @@ function prefillFromText(state: TriageState, protocol: Protocol, text: string) {
 
 const ADVICE: Record<Disposition, string> = {
   emergency: EMERGENCY_MESSAGE,
-  urgent: 'Please see a doctor today, at a clinic, urgent care or emergency department. If you get worse before then, seek emergency care.',
+  urgent: `Please get seen by a doctor today — within the next few hours — at a clinic, urgent care or an emergency department. If any warning sign below appears, go to the emergency department or call ${EMERGENCY_NUMBER} straight away.`,
   gp: 'Please book an appointment with a general physician (GP) in the next few days.',
   self_care: 'From what you told me, this can usually be watched at home for now.',
   insufficient: 'I don’t have enough information to guide you safely. If you are worried, please speak to a doctor.',
@@ -377,11 +394,11 @@ export function computeOutcome(state: TriageState, ctx: TriageContext): TriageOu
 
   let advice = ADVICE[disposition];
   if (disposition === 'self_care') advice += ` If it is not better within ${protocol.seeGpAfterDays} day${protocol.seeGpAfterDays === 1 ? '' : 's'}, or it gets worse, see a doctor.`;
-  if ((disposition === 'urgent' || disposition === 'gp') && flags.length) advice += ` Reason: ${joinAnd(flags.filter((f) => f.level === level || disposition === 'gp').map((f) => f.reason))}.`;
+  // The reasons are listed separately ("Why:") by renderOutcome.
 
   const contextNotes: string[] = [];
   if (ctx.allergies?.trim()) contextNotes.push(`Your record lists an allergy: ${ctx.allergies.trim()}. Tell any doctor or pharmacist you see.`);
-  if (ctx.activeMedicines.length) contextNotes.push(`You are currently taking: ${ctx.activeMedicines.join(', ')}. Mention these to the doctor. Do not stop or change them without medical advice.`);
+  if (ctx.activeMedicines.length) contextNotes.push(`Medicines recorded in MedNest: ${ctx.activeMedicines.join(', ')}. Tell the doctor what you are actually taking and how. Do not stop or change a medicine without medical advice.`);
   const prior = ctx.priorEpisodes.filter((e) => e.protocolId === protocol.id);
   if (prior.length) contextNotes.push(`You have reported this ${prior.length} time${prior.length === 1 ? '' : 's'} before (last on ${prior.map((p) => p.date).sort().pop()}). Repeated episodes are worth discussing with a doctor.`);
 
@@ -423,9 +440,12 @@ const HEADINGS: Record<Disposition, string> = {
 };
 
 export function renderOutcome(o: TriageOutcome): string {
-  const lines = [`${HEADINGS[o.disposition]}`, '', 'What you told me:', o.summary, '', o.advice];
+  const lines = [`${HEADINGS[o.disposition]}`, '', o.advice];
+  const reasons = o.flags.filter((f) => f.level === (o.disposition === 'gp' ? 'gp' : o.disposition)).map((f) => f.reason);
+  if (reasons.length && (o.disposition === 'urgent' || o.disposition === 'gp')) lines.push('', 'Why:', ...uniqText(reasons).map((r) => `• ${cap1(r)}`));
+  lines.push('', 'What you told me:', o.summary);
   if (o.generalInfo.length) lines.push('', 'General information:', ...o.generalInfo.map((s) => `• ${s}`));
-  if (o.safetyNet.length) lines.push('', 'Get medical help sooner if:', ...o.safetyNet.map((s) => `• ${s}`));
+  if (o.safetyNet.length) lines.push('', `Go to the emergency department or call ${EMERGENCY_NUMBER} if:`, ...o.safetyNet.map((s) => `• ${s}`));
   if (o.contextNotes.length) lines.push('', 'From your records:', ...o.contextNotes.map((s) => `• ${s}`));
   lines.push('', DISCLAIMER);
   return lines.join('\n');
@@ -433,6 +453,14 @@ export function renderOutcome(o: TriageOutcome): string {
 
 export function dispositionHeading(d: Disposition): string {
   return HEADINGS[d];
+}
+
+function uniqText(xs: string[]): string[] {
+  return [...new Set(xs)];
+}
+
+function cap1(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function joinAnd(xs: string[]): string {
