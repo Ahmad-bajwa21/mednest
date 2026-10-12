@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "MedNest",
+    "slug": "mednest",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "mednest",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.mednest.app",
+      "versionCode": 1,
+      "minSdkVersion": 29,
+      "allowBackup": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.READ_CONTACTS"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-local-authentication",
+      "expo-camera",
+      "expo-notifications",
+      "./src/native/plugins/withExactAlarms",
+      "./src/native/plugins/withForegroundService",
+      "./src/native/plugins/withFlagSecure"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  },
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-3940256099942544~3347511713"
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+dist/
+android/
+ios/
+*.log
+.DS_Store
+# Never commit models, keys, or any user data
+*.pte
+*.task
+*.litertlm
+*.onnx
+*.tflite
+/model/data/real/
+/model/checkpoints/
+secrets.*

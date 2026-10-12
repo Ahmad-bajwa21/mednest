@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MedNest — Privacy Policy</title>
+  <meta name="description" content="MedNest privacy policy. Your family's health records stay on your phone." />
+  <style>
+    /* MedNest design tokens (spec §2.2) — flat, no gradients, no shadows */
+    :root {
+      --bg: #FFFFFF;
+      --surface: #F6F7F8;
+      --border: #E3E6E8;
+      --text: #111417;
+      --textMuted: #5E6870;
+      --accent: #0F766E;
+      --maxw: 760px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0E1113;
+        --surface: #171B1E;
+        --border: #2A3035;
+        --text: #F2F4F5;
+        --textMuted: #9AA5AD;
+        --accent: #2DB5A8;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 32px 16px 72px; }
+    header { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 28px; }
+    .brand { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+    .brand span { color: var(--accent); }
+    .sub { color: var(--textMuted); margin-top: 4px; }
+    .meta { color: var(--textMuted); font-size: 12px; margin-top: 12px; }
+    h2 { font-size: 18px; font-weight: 600; margin: 32px 0 8px; }
+    p, li { color: var(--text); }
+    .muted { color: var(--textMuted); }
+    a { color: var(--accent); }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin: 16px 0;
+    }
+    .card h2 { margin-top: 0; }
+    ul { padding-left: 20px; }
+    li { margin: 6px 0; }
+    .tldr li { margin: 8px 0; }
+    footer { border-top: 1px solid var(--border); margin-top: 40px; padding-top: 20px; color: var(--textMuted); font-size: 13px; }
+    code { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">Med<span>Nest</span></div>
+      <div class="sub">Your family's health, in one place — and only on your phone.</div>
+      <div class="meta">Last updated: 10 October 2026 · Version 1.0</div>
+    </header>
+
+    <div class="card tldr">
+      <h2>In short</h2>
+      <ul>
+        <li><strong>Your health data stays on your phone.</strong> MedNest has no account, no login, and no server that stores your records.</li>
+        <li><strong>The AI runs on your device.</strong> Reading documents, writing summaries and answering your questions all happen offline, on the phone itself.</li>
+        <li><strong>We cannot see your records.</strong> There is no way for the app to send your health documents, medicines or results to us or anyone else.</li>
+        <li><strong>You are in control.</strong> You can delete everything at any time, and backups are encrypted with a password only you hold.</li>
+      </ul>
+    </div>
+
+    <h2>1. Who we are</h2>
+    <p>MedNest ("the app", "we", "us") is published by <strong>Gieek Software Solutions</strong>. You can contact us at
+      <a href="mailto:gieeksoftwaresolutions@gmail.com">gieeksoftwaresolutions@gmail.com</a>.</p>
+
+    <h2>2. What MedNest is</h2>
+    <p>MedNest is a personal health-record organiser. You photograph your family's medical papers (prescriptions, lab
+      reports, scans, bills) and the app organises them for each person, reminds you about medicines, and prepares a
+      one-page summary you can show a doctor.</p>
+    <p class="muted">MedNest does not diagnose, does not recommend or change treatment, and does not replace a doctor. It
+      records, organises and explains what is already written on your own documents.</p>
+
+    <h2>3. What data the app holds, and where</h2>
+    <p>All of the following is created and stored <strong>only on your device</strong>, inside the app's private,
+      encrypted storage. None of it is collected by us or sent to any server:</p>
+    <ul>
+      <li>Profiles you create (name, relation, birth year, sex, blood group, allergies).</li>
+      <li>Photographs of documents and the text read from them.</li>
+      <li>Extracted medicines, doses, test results and dates.</li>
+      <li>Reminders, dose logs, pattern notes and summaries.</li>
+    </ul>
+    <p>The on-device database is encrypted, and document images are encrypted in the app's private storage. The encryption
+      keys are held in the device's secure hardware keystore.</p>
+
+    <h2>4. How the AI works</h2>
+    <p>MedNest uses an on-device AI model (downloaded once during setup) together with on-device text recognition. All
+      processing happens locally. Your documents, questions and results are <strong>never</strong> sent to a cloud AI
+      service, and we receive nothing about what the AI reads or answers.</p>
+
+    <h2>5. Permissions we ask for</h2>
+    <ul>
+      <li><strong>Camera</strong> — only to photograph your documents. Photos are saved locally.</li>
+      <li><strong>Notifications</strong> — to show your medicine and follow-up reminders.</li>
+      <li><strong>Exact alarms</strong> — so reminders fire on time.</li>
+      <li><strong>Photos (system picker)</strong> — only the images you pick are imported; we do not scan your gallery.</li>
+    </ul>
+    <p class="muted">MedNest does not request location, contacts, SMS or microphone-for-recording permissions for its core
+      function.</p>
+
+    <h2>6. Internet use</h2>
+    <p>MedNest works fully offline. The only times it uses the internet are optional and never include your health data:</p>
+    <ul>
+      <li>Downloading the AI model once during setup.</li>
+      <li>Showing ads (see section 7), if you have not removed them.</li>
+      <li>Processing an in-app purchase through Google Play.</li>
+      <li>Backing up to <em>your own</em> Google Drive, if you turn backup on (see section 8).</li>
+    </ul>
+
+    <h2>7. Advertising</h2>
+    <p>The free version shows banner ads supplied by Google AdMob, on a small number of list screens only. Ads never appear
+      on screens that show your documents, medicines, results, chat or summaries.</p>
+    <ul>
+      <li>Ads are requested as <strong>non-personalised</strong>.</li>
+      <li><strong>No health data and no profile information is ever passed to the ad provider.</strong></li>
+      <li>The Google Mobile Ads SDK may collect device identifiers and technical data to serve and measure ads, as
+        described in Google's own policies. Where required, we show a consent prompt.</li>
+      <li>You can permanently remove ads with a one-time in-app purchase.</li>
+    </ul>
+
+    <h2>8. Backup and sharing</h2>
+    <p>Backup is optional. If you enable it, MedNest writes a single <strong>encrypted</strong> file to your own Google
+      Drive app-data folder, protected by a password you set. We never see this file and cannot open it. If you forget the
+      password, the backup cannot be recovered.</p>
+    <p>If you share a profile to another phone, MedNest creates an encrypted <code>.mednest</code> file protected by a code
+      you share separately. Sharing sends a copy; it is not live sync.</p>
+
+    <h2>9. Deleting your data</h2>
+    <p>You can delete any document or profile at any time, which removes its images, medicines, results, reminders and
+      notes. Settings &rarr; <em>Delete all data</em> permanently wipes the entire database, all images and the encryption
+      keys from the device. Because we never hold your data, there is nothing for us to delete on our side.</p>
+
+    <h2>10. Children</h2>
+    <p>You may create a profile for a child in your family to keep their records. The app is intended to be operated by an
+      adult caretaker. We do not knowingly collect any data from children directly — all data stays on the caretaker's
+      device.</p>
+
+    <h2>11. Crash reporting</h2>
+    <p>If crash reporting is included in a build, it is opt-in and is configured to strip all user text and health content.
+      It never transmits your documents, medicines or results.</p>
+
+    <h2>12. Changes to this policy</h2>
+    <p>If we change this policy we will update the date above and, where appropriate, notify you in the app.</p>
+
+    <h2>13. Contact</h2>
+    <p>Questions about privacy? Email
+      <a href="mailto:gieeksoftwaresolutions@gmail.com">gieeksoftwaresolutions@gmail.com</a>.</p>
+
+    <footer>
+      <p>MedNest keeps your family's health records on your device. This is a personal health-record organiser, not a
+        medical device, and it does not provide medical advice.</p>
+      <p class="muted">Draft notice: health-data rules differ by country (for example GDPR in Europe). Before a public or
+        worldwide launch this policy should be reviewed by a qualified lawyer for your target markets.</p>
+    </footer>
+  </div>
+</body>
+</html>
