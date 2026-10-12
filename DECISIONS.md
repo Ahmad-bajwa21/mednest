@@ -84,6 +84,21 @@ recommend", §15 out-of-scope "diagnosis, risk scores, treatment suggestions"):
 - Deleting a document / profile / all data now also deletes the image files.
 - **Still open:** document images are not yet AES-256-GCM encrypted at rest (spec §10).
 
+## Live medical information (owner's call, 2026-10-13)
+- The AI has internet access, **completely free**, using the user's own connection: no
+  API keys, no paid AI service, no MedNest server. Sources (all public, CORS-enabled):
+  RxNorm + MedlinePlus Connect + NLM Clinical Tables (US NLM), openFDA drug labels,
+  Wikipedia as a labelled fallback (`src/ai/online/`).
+- Records are always used to personalise lookups (which medicines to look up; checking
+  the FDA label's interaction section for the patient's other medicines). Only the search
+  term (medicine name / topic) is sent — never name, profile, allergies or documents.
+  This supersedes spec §10 "no network calls contain user data" in that medicine names
+  from the record are sent as search terms. Privacy policy updated.
+- Text is copied from the sources with links, never generated. The optional in-browser
+  model (WebLLM) may summarise the fetched sources only.
+- openFDA labels are US labels and MedlinePlus is US content; Pakistan brands are mapped
+  to ingredients by the local list first. Not a substitute for a licensed local database.
+
 ## Design language (2026-10-13)
 - Calm clinical palette shared by web and Android: medical teal `#0B7A75` (primary),
   soft blue (information), mint (supportive surfaces); amber/red only for status.

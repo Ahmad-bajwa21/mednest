@@ -2751,6 +2751,198 @@ function renderVisitSummaryText(s, profile) {
   L.push("", "Patient-reported information has not been verified by a clinician.");
   return L.join("\n");
 }
+
+// src/ai/online/medicalSources.ts
+var RXNAV = "https://rxnav.nlm.nih.gov/REST";
+var CONNECT = "https://connect.medlineplus.gov/service";
+var FDA = "https://api.fda.gov/drug/label.json";
+var TABLES = "https://clinicaltables.nlm.nih.gov/api/conditions/v3/search";
+var WIKI = "https://en.wikipedia.org";
+var enc = encodeURIComponent;
+async function getJson(fetchFn, url) {
+  try {
+    const r = await fetchFn(url);
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  }
+}
+function cleanText(raw, max = 600) {
+  if (!raw)
+    return null;
+  let t = raw.replace(/<\/li>\s*/gi, "; ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\[\s*see [^\]]*\]/gi, "").replace(/\(\s*\d+(\.\d+)*\s*\)/g, "").replace(/\s+([.,;:])/g, "$1").replace(/;\s*([.;]|$)/g, "$1").replace(/\s+/g, " ").trim();
+  t = t.replace(/^\d+(\.\d+)?\s+[A-Z][A-Z &]+[A-Z]\s+/, "");
+  if (t.length <= max)
+    return t || null;
+  const cut = t.slice(0, max);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("."));
+  return (end > max * 0.5 ? cut.slice(0, end + 1) : cut.replace(/\s+\S*$/, "") + "\u2026").trim();
+}
+async function resolveIngredient(name, fetchFn) {
+  const local = identifyMedicine(name);
+  if (local)
+    return { generic: local.generic, match: local.certainty };
+  const word = name.trim().split(/\s+/)[0] ?? name;
+  const approx = await getJson(fetchFn, `${RXNAV}/approximateTerm.json?term=${enc(word)}&maxEntries=1`);
+  const cand = approx?.approximateGroup?.candidate?.[0];
+  if (!cand?.rxcui)
+    return { generic: null, match: "none" };
+  const rel = await getJson(fetchFn, `${RXNAV}/rxcui/${enc(cand.rxcui)}/related.json?tty=IN`);
+  const ing = rel?.relatedGroup?.conceptGroup?.find((g) => g.tty === "IN")?.conceptProperties?.[0]?.name;
+  return ing ? { generic: String(ing).toLowerCase(), match: "rxnorm" } : { generic: null, match: "none" };
+}
+async function lookupMedicineOnline(name, fetchFn, otherGenerics = []) {
+  const { generic, match } = await resolveIngredient(name, fetchFn);
+  const out = { query: name, generic, match, summary: null, fdaUses: null, boxedWarning: null, interactionMentions: [], sources: [] };
+  if (!generic) {
+    const w = await wikipediaSummary(name, fetchFn);
+    if (w.summary) {
+      out.summary = w.summary;
+      out.sources.push(...w.sources);
+    }
+    return out;
+  }
+  const [ids, label] = await Promise.all([
+    getJson(fetchFn, `${RXNAV}/rxcui.json?name=${enc(generic)}&search=2`),
+    getJson(fetchFn, `${FDA}?search=openfda.generic_name:%22${enc(generic)}%22&limit=1`)
+  ]);
+  const rxcui = ids?.idGroup?.rxnormId?.[0];
+  if (rxcui) {
+    const mp = await getJson(fetchFn, `${CONNECT}?mainSearchCriteria.v.cs=2.16.840.1.113883.6.88&mainSearchCriteria.v.c=${enc(rxcui)}&knowledgeResponseType=application/json`);
+    const e = mp?.feed?.entry?.[0];
+    if (e) {
+      out.summary = cleanText(e.summary?._value, 600);
+      out.sources.push({ name: "MedlinePlus (US National Library of Medicine)", url: String(e.link?.[0]?.href ?? "https://medlineplus.gov").split("?")[0] });
+    }
+  }
+  const r = label?.results?.[0];
+  if (r) {
+    out.fdaUses = cleanText(r.indications_and_usage?.[0], 450);
+    out.boxedWarning = cleanText(r.boxed_warning?.[0], 350);
+    const inter = String((r.drug_interactions ?? []).join(" ")).toLowerCase();
+    out.interactionMentions = otherGenerics.filter((g) => g && g !== generic && new RegExp(`\\b${g.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(inter));
+    out.sources.push({ name: "US FDA drug label (openFDA)", url: `https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${enc(generic)}` });
+  }
+  if (!out.summary && !out.fdaUses) {
+    const w = await wikipediaSummary(generic, fetchFn);
+    if (w.summary) {
+      out.summary = w.summary;
+      out.sources.push(...w.sources);
+    }
+  }
+  return out;
+}
+async function lookupTopicOnline(term, fetchFn) {
+  const t = await getJson(fetchFn, `${TABLES}?terms=${enc(term)}&df=primary_name,icd10cm_codes&maxList=3`);
+  const rows = Array.isArray(t?.[3]) ? t[3] : [];
+  for (const [title2, codes] of rows) {
+    const code = String(codes ?? "").split(",")[0]?.trim();
+    if (!code)
+      continue;
+    const mp = await getJson(fetchFn, `${CONNECT}?mainSearchCriteria.v.cs=2.16.840.1.113883.6.90&mainSearchCriteria.v.c=${enc(code)}&knowledgeResponseType=application/json`);
+    const e = mp?.feed?.entry?.[0];
+    if (e?.summary?._value) {
+      return {
+        query: term,
+        title: e.title?._value ?? title2,
+        summary: cleanText(e.summary._value, 700),
+        sources: [{ name: "MedlinePlus (US National Library of Medicine)", url: String(e.link?.[0]?.href ?? "https://medlineplus.gov").split("?")[0] }]
+      };
+    }
+  }
+  const w = await wikipediaSummary(term, fetchFn);
+  return { query: term, title: w.title, summary: w.summary, sources: w.sources };
+}
+async function wikipediaSummary(term, fetchFn) {
+  const s = await getJson(fetchFn, `${WIKI}/w/api.php?action=query&list=search&srsearch=${enc(term)}&srlimit=1&format=json&origin=*`);
+  const title2 = s?.query?.search?.[0]?.title;
+  if (!title2)
+    return { query: term, title: null, summary: null, sources: [] };
+  const p = await getJson(fetchFn, `${WIKI}/api/rest_v1/page/summary/${enc(String(title2).replace(/ /g, "_"))}`);
+  const summary = cleanText(p?.extract, 600);
+  return summary ? { query: term, title: title2, summary, sources: [{ name: "Wikipedia (general encyclopedia \u2014 less authoritative)", url: p?.content_urls?.desktop?.page ?? `${WIKI}/wiki/${enc(title2)}` }] } : { query: term, title: null, summary: null, sources: [] };
+}
+function renderDrugInfo(d, displayName) {
+  const L = [];
+  const name = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+  if (!d.summary && !d.fdaUses)
+    return `I couldn\u2019t find ${name} in the online medicine sources. Please check the name on the box, or ask a pharmacist.`;
+  const ing = d.generic && d.generic.toLowerCase() !== displayName.toLowerCase() ? ` (active ingredient: ${d.generic})` : "";
+  L.push(`From trusted online sources about ${name}${ing}:`);
+  if (d.match === "possible")
+    L.push(`\u26A0 \u201C${displayName}\u201D isn\u2019t an exact match \u2014 this is about ${d.generic}. Please confirm the name on the box.`);
+  if (d.summary)
+    L.push(`\u2022 ${d.summary}`);
+  if (d.fdaUses)
+    L.push(`\u2022 FDA label \u2014 uses: ${d.fdaUses}`);
+  if (d.boxedWarning)
+    L.push(`\u26A0 FDA boxed warning: ${d.boxedWarning}`);
+  if (d.interactionMentions.length)
+    L.push(`\u26A0 The FDA label\u2019s interaction section mentions ${d.interactionMentions.join(" and ")}, ${d.interactionMentions.length > 1 ? "which are" : "which is"} also in your records. Ask your doctor or pharmacist whether this combination is right for you.`);
+  L.push("Sources:\n" + d.sources.map((s) => `\u2022 ${s.name}: ${s.url}`).join("\n"));
+  L.push("General information from public sources \u2014 not a diagnosis, and not instructions for you. Follow your own prescription.");
+  return L.join("\n");
+}
+function renderTopicInfo(t) {
+  if (!t.summary)
+    return `I couldn\u2019t find reliable information about \u201C${t.query}\u201D online.`;
+  return [
+    `From trusted online sources${t.title ? ` \u2014 ${t.title}` : ""}:`,
+    `\u2022 ${t.summary}`,
+    "Sources:\n" + t.sources.map((s) => `\u2022 ${s.name}: ${s.url}`).join("\n"),
+    "General information \u2014 not a diagnosis. If you feel unwell, use \u201CCheck a symptom\u201D."
+  ].join("\n");
+}
+
+// src/ai/online/enrich.ts
+var STOP = /\b(what|whats|what's|is|are|was|the|a|an|of|for|about|tell|me|explain|please|my|i|do|does|can|could|how|why|it|this|that|these|those|they|them|should|know|more|information|info|on|in|to|and|with|have|has|you|symptoms?|causes?|signs?|treatment|treat|meaning|mean|define|definition|kya|hai|hota)\b/g;
+function topicOf(question) {
+  const t = question.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").replace(STOP, " ").replace(/\s+/g, " ").trim();
+  return t.length >= 3 && t.split(" ").length <= 4 ? t : null;
+}
+function planEnrichment(question, answer, meds, ctx) {
+  const q = ` ${question.toLowerCase()} `;
+  const wantsInfo = /\b(what|why|for|about|side ?effects?|warnings?|interact\w*|safe|tell|explain|use|used|kya)\b/.test(q);
+  const otherGenerics = [...new Set(meds.map((m) => identifyMedicine(m.name)?.generic).filter((g) => !!g))];
+  let targets = meds.filter((m) => {
+    const first = m.name.toLowerCase().split(/\s+/)[0] ?? "";
+    return first.length >= 3 && q.includes(first);
+  });
+  if (!targets.length && /\b(it|this|that)\b/.test(q) && ctx.lastMedicineId)
+    targets = meds.filter((m) => m.id === ctx.lastMedicineId);
+  if (!targets.length && ctx.replyMedicineId)
+    targets = meds.filter((m) => m.id === ctx.replyMedicineId);
+  if (/\b(these|them|they|all|both|collectively|my medicines|my meds)\b/.test(q) && meds.length > 1)
+    targets = meds;
+  if (targets.length && wantsInfo)
+    return { kind: "drug", names: targets.slice(0, 4).map((m) => m.name), otherGenerics };
+  const word = question.toLowerCase().split(/[^a-z0-9-]+/).find((w) => w.length >= 4 && identifyMedicine(w) && identifyMedicine(w).certainty !== "possible");
+  if (word && wantsInfo)
+    return { kind: "drug", names: [word], otherGenerics };
+  const couldNotAnswer = /couldn’t find|could not find|can’t identify/.test(answer);
+  const generalQuestion = /^\s*(what (is|are)|tell me about|explain|symptoms? of|causes? of|signs? of|how (is|are|do)|what causes|kya hai)\b/.test(question.toLowerCase());
+  if (couldNotAnswer || generalQuestion) {
+    const term = topicOf(question);
+    if (term)
+      return { kind: "topic", term };
+  }
+  return null;
+}
+async function runEnrichment(plan, fetchFn) {
+  if (!plan)
+    return null;
+  if (plan.kind === "topic") {
+    const t = await lookupTopicOnline(plan.term, fetchFn);
+    return t.summary ? renderTopicInfo(t) : null;
+  }
+  const parts = [];
+  for (const name of plan.names) {
+    const d = await lookupMedicineOnline(name, fetchFn, plan.otherGenerics);
+    if (d.summary || d.fdaUses)
+      parts.push(renderDrugInfo(d, name.split(/\s+/)[0]));
+  }
+  return parts.length ? parts.join("\n\n") : null;
+}
 export {
   EMERGENCY_MESSAGE,
   EMERGENCY_NUMBER,
@@ -2774,23 +2966,30 @@ export {
   historyEntries,
   identifyMedicine,
   localDateIso,
+  lookupMedicineOnline,
+  lookupTopicOnline,
   parseFollowUp,
   parseFrequency,
   parseLocalDate,
   pastDoses,
   pendingConfirmations,
+  planEnrichment,
   proposeFollowUp,
   readWithRules,
   reminderBody,
+  renderDrugInfo,
   renderOutcome,
+  renderTopicInfo,
   renderVisitSummaryText,
   resolveTime,
   respond,
+  runEnrichment,
   scheduleBlockers,
   scheduleIssues,
   snoozeAlarm,
   sortedTimes,
   startTriage,
   todaysDoses,
+  topicOf,
   upcomingAppointments
 };

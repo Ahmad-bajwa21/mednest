@@ -125,10 +125,20 @@
     <p class="muted">MedNest does not request location, contacts, SMS or microphone-for-recording permissions for its core
       function.</p>
 
+    <p><strong>Live medical information.</strong> When you ask about a medicine or a health topic, MedNest looks it up
+      in free public medical sources using your own internet connection: MedlinePlus and RxNorm (US National Library of
+      Medicine), US FDA drug labels (openFDA), NLM Clinical Tables, and Wikipedia as a fallback. To personalise answers,
+      MedNest uses your saved records on your device — for example, it looks up the medicines in your profile and checks
+      whether a medicine’s FDA label mentions your other medicines. Only the search term (a medicine name or a health
+      topic such as “gout”) is sent to those services. Your name, profile, allergies, documents and symptom answers are
+      not sent. These services may log search terms and your IP address under their own policies. There is no MedNest
+      server and no paid AI service involved.</p>
+
     <h2>6. Internet use</h2>
-    <p>MedNest works fully offline. The only times it uses the internet are optional and never include your health data:</p>
+    <p>MedNest works offline for everything saved on your device. It uses the internet only for the following, and never sends your name, profile or documents:</p>
     <ul>
       <li>Downloading the AI model once during setup.</li>
+      <li>Looking up medicine names and health topics in public medical sources (MedlinePlus, RxNorm, FDA, Wikipedia) — only the search term is sent.</li>
       <li>Showing ads (see section 7), if you have not removed them.</li>
       <li>Processing an in-app purchase through Google Play.</li>
       <li>Backing up to <em>your own</em> Google Drive, if you turn backup on (see section 8).</li>

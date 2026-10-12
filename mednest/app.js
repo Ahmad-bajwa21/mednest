@@ -317,7 +317,7 @@ function screenWelcome() {
 function renderWelcome() {
   const slides = [
     { ico: 'prescription', t: 'All your medical papers, organised', b: 'Photograph prescriptions and reports. MedNest files them for each family member and sets medicine and follow-up reminders.' },
-    { ico: 'lock', t: 'Private by design', b: 'No account and no upload. Your health records stay on this device, in this browser.' },
+    { ico: 'lock', t: 'Private by design', b: 'No account and no MedNest server. Your records stay on this device. When you look something up, only the medicine name or topic is sent to trusted public medical sources.' },
     { ico: 'stethoscope', t: 'A helper, not a doctor', b: 'MedNest organises your records and its symptom check helps you decide when to get care. It does not diagnose, and it never replaces your doctor.' },
   ];
   const i = window.__ob;
@@ -362,7 +362,7 @@ function screenProfiles() {
       <div class="greeting"><div class="who">Your family’s health, organised</div><div class="muted" style="margin-top:4px">Prescriptions, medicines, reminders and symptom checks — in one calm place.</div></div>
       ${body}
       <div class="card link" data-go="#/health-info"><div class="row grow"><span class="tile info">${icon('chat')}</span><div class="grow"><div class="name">General health questions</div><div class="list-sub">An open-source assistant that runs in your browser</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
-      <div class="trust"><span class="tile">${icon('shield')}</span><div class="grow"><div class="name">Private by design</div><div class="caption" style="color:var(--text)">Your records stay in this browser. No account, no upload. <a class="inline" href="#/settings">Privacy &amp; data</a></div></div></div>
+      <div class="trust"><span class="tile">${icon('shield')}</span><div class="grow"><div class="name">Private by design</div><div class="caption" style="color:var(--text)">Your records stay in this browser — no account, no MedNest server. Only medicine names and health topics you look up are sent to public medical sources. <a class="inline" href="#/settings">Privacy &amp; data</a></div></div></div>
     </div>`);
 }
 
@@ -836,7 +836,9 @@ function renderAssistant(id) {
   const p = getProfile(id);
   const num112 = core.EMERGENCY_NUMBER;
   // Each message says who it is from, so patient answers and assistant guidance never blur.
-  const bubble = (b) => b.role === 'user'
+  const bubble = (b) => b.msg.kind === 'online'
+    ? `<div class="card bubble-online"><div class="who-label">${icon('info', 14)} Live from trusted sources · MedlinePlus</div><div class="msg">${b.msg.pending ? `<span class="spin" style="display:inline-flex;vertical-align:middle">${icon('clock', 16)}</span> ` : ''}${linkify(b.msg.text)}</div></div>`
+    : b.role === 'user'
     ? `<div class="card bubble-user"><div class="who-label">${icon('user', 14)} You</div>${esc(b.msg.text)}</div>`
     : `<div class="card ${b.msg.kind === 'emergency' ? 'bubble-emergency' : b.msg.kind === 'summary' ? 'bubble-summary' : 'bubble-bot'}">${b.msg.kind === 'emergency' ? `<div class="name row" style="color:var(--danger);gap:8px">${icon('alert', 20)} Get help now</div>` : `<div class="who-label">${icon('assistant', 14)} MedNest symptom check · rules-based${b.msg.kind === 'summary' ? ' · not a diagnosis' : ''}</div>`}<div class="msg">${esc(b.msg.text)}</div>${b.msg.kind === 'emergency' ? `<a class="btn danger" href="tel:${num112}">${icon('phone', 18)} Call ${num112}</a>` : ''}</div>`;
   const last = [...t.bubbles].reverse().find((b) => b.role === 'assistant')?.msg;
@@ -848,7 +850,7 @@ function renderAssistant(id) {
       ${t.bubbles.map(bubble).join('')}
       ${t.busy ? '<div class="caption">…</div>' : ''}
       ${quick}
-      ${t.state.done ? `${t.savedId ? `<div class="caption" style="text-align:center;margin-top:12px">Saved to ${esc(p.name)}’s medical history.</div>` : ''}<button class="btn primary" data-go="#/profile/${id}/visit">Prepare doctor visit summary</button><button class="btn secondary" id="tri-new">Start a new check</button><button class="textbtn" data-go="#/profile/${id}/history" style="display:block;margin:4px auto">See medical history</button>` : `<div class="row" style="gap:8px;position:sticky;bottom:76px;margin-top:12px"><input id="tri-input" placeholder="Type your answer…" class="grow" autocomplete="off"/><button class="iconbtn" id="tri-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>`}
+      ${t.state.done ? `${t.savedId ? `<div class="caption" style="text-align:center;margin-top:12px">Saved to ${esc(p.name)}’s medical history.</div>` : ''}<button class="btn primary" data-go="#/profile/${id}/visit">${icon('stethoscope', 18)} Prepare doctor visit summary</button>${t.state.disposition !== 'emergency' && !t.learned ? `<button class="btn secondary" id="tri-learn">${icon('info', 18)} Learn more from MedlinePlus</button>` : ''}<button class="btn secondary" id="tri-new">Start a new check</button><button class="textbtn" data-go="#/profile/${id}/history" style="display:block;margin:4px auto">See medical history</button>` : `<div class="row" style="gap:8px;position:sticky;bottom:76px;margin-top:12px"><input id="tri-input" placeholder="Type your answer…" class="grow" autocomplete="off"/><button class="iconbtn" id="tri-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>`}
       <div class="disclaimer">${esc(core.TRIAGE_DISCLAIMER)}</div>
     </div>${tabsBar(id, 'assistant')}`);
   const send = async (text) => {
@@ -869,6 +871,19 @@ function renderAssistant(id) {
   $('#tri-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(e.target.value); });
   app.querySelectorAll('[data-qr]').forEach((b) => b.addEventListener('click', () => send(b.dataset.qr)));
   $('#tri-new')?.addEventListener('click', () => { window.__tri = null; screenAssistant(id); });
+  $('#tri-learn')?.addEventListener('click', async () => {
+    if (!online()) return flash('You’re offline. Connect to the internet to read more.');
+    t.learned = true;
+    const protocol = core.PROTOCOLS.find((x) => x.id === t.state.protocolId);
+    const term = protocol && protocol.id !== 'general' ? protocol.label : core.topicOf(t.state.complaint || '') || t.state.complaint || '';
+    const msg = { kind: 'online', pending: true, text: `Looking up “${term}” on MedlinePlus…` };
+    t.bubbles.push({ role: 'assistant', msg });
+    renderAssistant(id);
+    const found = await cachedEnrichment({ kind: 'topic', term });
+    msg.pending = false;
+    msg.text = found || 'I couldn’t find reliable information about this online.';
+    if (location.hash.endsWith('/assistant')) renderAssistant(id);
+  });
   if (t.bubbles.length > 1) window.scrollTo(0, document.body.scrollHeight);
 }
 function saveAssessment(pid, state, messages) {
@@ -938,11 +953,23 @@ function screenMedicine(id, mid, editing = false) {
       ${st === 'paused' ? '<button class="btn primary" data-st="active">Resume</button>' : ''}
       ${['active', 'paused', 'pending'].includes(st) ? '<button class="btn secondary" data-st="completed">Mark course completed</button><button class="btn danger" data-st="discontinued">Stop this medicine</button>' : ''}
       <div class="caption" style="text-align:center;margin-top:8px">Only change or stop a medicine as your doctor advised.</div>`}
+      <h2 class="sec">About this medicine</h2>
+      <div class="card bubble-online" id="m-online">${window.__medOnline?.id === mid ? `<div class="msg">${linkify(window.__medOnline.text)}</div>` : `<div class="caption" style="color:var(--text)">See what MedlinePlus (NIH) and the US FDA label say about ${esc(m.name)}, and whether the label mentions any of your other medicines.</div><button class="btn secondary" id="m-lookup">${icon('info', 18)} Look up online</button>`}</div>
       <div class="disclaimer">${DISCLAIMER}</div>
     </div>`);
   // Leave edit mode; drop a trailing /edit from the address so a refresh shows the view.
   const viewMed = () => (location.hash.endsWith('/edit') ? go(`#/profile/${id}/medicine/${mid}`) : screenMedicine(id, mid));
   const readForm = () => { if (!f) return; f.name = $('#e-name').value; f.dose = $('#e-dose').value; f.startDate = $('#e-start').value; f.durationDays = $('#e-days').value; f.instructions = $('#e-instr').value; };
+  $('#m-lookup')?.addEventListener('click', async () => {
+    if (!online()) return flash('You’re offline. Connect to the internet to look this medicine up.');
+    $('#m-online').innerHTML = `<div class="msg"><span class="spin" style="display:inline-flex;vertical-align:middle">${icon('clock', 16)}</span> Checking MedlinePlus and the FDA label…</div>`;
+    // Records are included: the patient's other medicines are checked against the label.
+    const others = activeMeds(id).filter((x) => x.id !== mid).map((x) => x.name);
+    const generics = [...new Set(others.map((n) => core.identifyMedicine(n)?.generic).filter(Boolean))];
+    const text = await cachedEnrichment({ kind: 'drug', names: [m.name], otherGenerics: generics });
+    window.__medOnline = { id: mid, text: text || 'I couldn’t find this medicine in the online sources. Please check the name on the box, or ask a pharmacist.' };
+    if (location.hash.includes(`/medicine/${mid}`)) screenMedicine(id, mid);
+  });
   $('#m-edit')?.addEventListener('click', () => { window.__medForm = null; screenMedicine(id, mid, true); });
   $('#m-edit2')?.addEventListener('click', () => { window.__medForm = null; screenMedicine(id, mid, true); });
   app.querySelectorAll('[data-st]').forEach((b) => b.addEventListener('click', () => {
@@ -1066,7 +1093,9 @@ function renderAsk(id) {
   const chips = ['What medicines am I taking, and why?', 'When do I take them?', 'Next follow-up?', 'Last sugar test?'];
   const logHtml = chat.log.map((m) => m.role === 'user'
     ? `<div class="card bubble-user"><div class="who-label">${icon('user', 14)} You</div>${esc(m.text)}</div>`
-    : `<div class="card ${m.emergency ? 'bubble-emergency' : 'bubble-bot'}"><div class="who-label">${icon('chat', 14)} MedNest · from your records + general medicine information</div><div class="msg">${esc(m.text)}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
+    : m.online
+      ? `<div class="card bubble-online"><div class="who-label">${icon('info', 14)} Live from trusted sources · MedlinePlus, FDA, RxNorm</div><div class="msg">${m.pending ? `<span class="spin" style="display:inline-flex;vertical-align:middle">${icon('clock', 16)}</span> ` : ''}${linkify(m.text)}</div></div>`
+      : `<div class="card ${m.emergency ? 'bubble-emergency' : 'bubble-bot'}"><div class="who-label">${icon('chat', 14)} MedNest · from your records</div><div class="msg">${esc(m.text)}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
   const lastBot = [...chat.log].reverse().find((m) => m.role === 'bot');
   const addBtn = lastBot?.addMedicine && !lastBot.added ? `<button class="btn primary" id="ask-add">Add ${esc(lastBot.addMedicine.name)}${lastBot.addMedicine.dose ? ' ' + esc(lastBot.addMedicine.dose) : ''} to medicines</button>` : '';
   const followChips = addBtn + (lastBot?.suggestions?.length ? `<div class="chips" style="margin-top:8px">${lastBot.suggestions.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '');
@@ -1078,6 +1107,44 @@ function renderAsk(id) {
       <div class="disclaimer">${DISCLAIMER}</div>
       <div class="row" style="gap:8px;position:sticky;bottom:76px"><input id="ask-input" placeholder="Ask about ${esc(p.name)}…" class="grow"/><button class="iconbtn" id="ask-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>
     </div>${tabsBar(id, 'ask')}`);
+}
+
+/* ============================== live medical information ============================== */
+// Free public sources fetched with the user's own connection (MedlinePlus, FDA drug
+// labels, RxNorm, NLM Clinical Tables, Wikipedia). Only medicine names / topic words
+// are sent; answers show the source and link. See src/ai/online/.
+const online = () => typeof navigator === 'undefined' || navigator.onLine !== false;
+const webFetch = (url) => fetch(url, { headers: { Accept: 'application/json' } });
+const onlineCache = new Map();
+async function cachedEnrichment(plan) {
+  const key = JSON.stringify(plan);
+  if (!onlineCache.has(key)) onlineCache.set(key, core.runEnrichment(plan, webFetch).catch(() => null));
+  return onlineCache.get(key);
+}
+// Escape, then turn source URLs into links that open outside the app.
+function linkify(text) {
+  return esc(text).replace(/https?:\/\/[^\s<]+/g, (u) => `<a class="inline" href="${u}" target="_blank" rel="noopener noreferrer">${u.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]}</a>`);
+}
+async function enrichOnline(pid, question, res, prevMedicineId) {
+  const chat = window.__chat;
+  const meds = activeMeds(pid);
+  const plan = core.planEnrichment(question, res.answer, meds, { lastMedicineId: prevMedicineId, replyMedicineId: res.medicineId });
+  if (!plan) return;
+  if (!online()) {
+    chat.log.push({ role: 'bot', online: true, text: 'You’re offline, so I can’t check online medical sources right now. The answer above uses only what is saved on this device.' });
+    return renderAsk(pid);
+  }
+  const msg = { role: 'bot', online: true, pending: true, text: 'Checking trusted medical sources…' };
+  chat.log.push(msg);
+  renderAsk(pid);
+  window.scrollTo(0, document.body.scrollHeight);
+  const text = await cachedEnrichment(plan);
+  msg.pending = false;
+  msg.text = text || (plan.kind === 'topic' ? `I couldn’t find reliable information about that online. Try different words, or ask a doctor or pharmacist.` : 'I couldn’t find this medicine in the online sources. Please check the name on the box, or ask a pharmacist.');
+  if (location.hash.endsWith(`/profile/${pid}/ask`) && window.__chat === chat) {
+    renderAsk(pid);
+    window.scrollTo(0, document.body.scrollHeight);
+  }
 }
 
 /* ============================== doctor visit summary ============================== */
@@ -1267,7 +1334,7 @@ function screenSettings() {
     ${topbar('#/', 'Settings')}
     <div class="screen">
       <h2 class="sec">Privacy &amp; data</h2>
-      <div class="trust"><span class="tile">${icon('shield')}</span><div class="grow"><div class="name">Your records stay on this device</div><div class="caption" style="color:var(--text)">Stored only in this browser (${used} plus photos). No account, no upload, no tracking of health data. Photos are read in your browser.</div></div></div>
+      <div class="trust"><span class="tile">${icon('shield')}</span><div class="grow"><div class="name">Your records stay on this device</div><div class="caption" style="color:var(--text)">Stored only in this browser (${used} plus photos). No account and no MedNest server. Photos are read in your browser. For live medical information, only medicine names and health topics are sent to MedlinePlus, RxNorm, the FDA and Wikipedia — never your name, profile or documents.</div></div></div>
       <div class="card link" id="export"><div class="row grow"><span class="tile ">${icon('download', 20)}</span><div class="grow"><div class="name">Export all data</div><div class="list-sub">Download a copy of every record (JSON)</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
       <div class="card link" data-href="./privacy"><div class="row grow"><span class="tile ">${icon('lock', 20)}</span><div class="grow"><div class="name">Privacy policy</div><div class="list-sub">What is stored, where, and how to delete it</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
       <div class="card link" id="wipe"><div class="row grow"><span class="tile warn">${icon('trash', 20)}</span><div class="grow"><div class="name">Delete all data</div><div class="list-sub">Permanently remove all profiles, records and photos</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
@@ -1314,6 +1381,7 @@ function wire() {
         // Never show a misleading "not found" when reading the records failed.
         res = { answer: 'Sorry — I couldn’t read the saved records just now, so I can’t answer reliably. Nothing was changed. Please try again, or open Meds to see your medicines directly.', sources: [] };
       }
+      const prevMedicineId = chat.lastMedicineId;
       if (res.medicineId) chat.lastMedicineId = res.medicineId;
       if (res.explainedIds) chat.explainedIds = res.explainedIds;
       chat.pendingIntent = res.pendingIntent || null;
@@ -1321,6 +1389,8 @@ function wire() {
       chat.log.push({ role: 'bot', text: res.answer, sources: res.sources, suggestions: res.suggestions, emergency: res.emergency, addMedicine: res.addMedicine });
       renderAsk(id);
       window.scrollTo(0, document.body.scrollHeight);
+      // Then look it up live in trusted public sources (MedlinePlus, FDA, RxNorm).
+      if (!res.emergency && !res.refusal) enrichOnline(id, text, res, prevMedicineId);
     };
     // "I am also taking X": add it as the user told it (name + dose only). Times are never
     // guessed — the medicine waits under Pending confirmations until the user sets them.
@@ -1501,36 +1571,46 @@ Rules you must always follow:
 - You are NOT a doctor. Never diagnose the user, never tell them which medicine or what dose to take, never interpret their personal results, and never give emergency treatment instructions.
 - If asked for personal diagnosis or treatment ("do I have X", "should I take Y", "what dose should I take"), briefly decline and tell them to see a doctor.
 - Keep answers short and in plain words. End EVERY answer with: "This is general information, not medical advice — please see a doctor."
-- You have no internet access. Answer from general knowledge and say clearly when you are unsure.`;
+- You are given SOURCES fetched from trusted medical websites. Base every statement on them; if they do not cover the question, say so plainly.`;
 
 const WEBLLM_MODEL = 'Llama-3.2-1B-Instruct-q4f32_1-MLC';
 const webllm = { engine: null, status: 'idle', progress: '', busy: false, log: [] };
 
 function screenHealthInfo() { renderHealthInfo(); }
 
+// General health questions. Works on every device: answers come live from trusted
+// public sources (MedlinePlus, FDA, RxNorm, Wikipedia as fallback) with links. The
+// optional in-browser open-source model can then write a short plain-language summary
+// using ONLY those sources — it is never the source of medical facts itself.
 function renderHealthInfo() {
   const w = webllm;
   const logHtml = w.log.map((m) => m.role === 'user'
-    ? `<div class="card" style="margin-left:40px;border-color:var(--accent)"><strong>You:</strong> ${esc(m.text)}</div>`
-    : `<div class="card ${m.emergency ? 'bubble-emergency' : ''}">${esc(m.text)}${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}</div>`).join('');
-  let controls = '';
-  if (w.status === 'idle') controls = `<button class="btn primary" id="hi-load">Load assistant (one-time ~1 GB download)</button><div class="caption" style="text-align:center;margin-top:6px">Runs fully in your browser. Needs a WebGPU browser (Chrome or Edge on desktop works best). Nothing is uploaded.</div>`;
-  else if (w.status === 'loading') controls = `<div class="card"><div>Loading model…</div><div class="caption">${esc(w.progress)}</div></div>`;
-  else if (w.status === 'nogpu') controls = `<div class="card" style="border-color:var(--warn)">This browser doesn't support WebGPU, so the in-browser model can't run here. Try Chrome or Edge on a desktop/laptop. (The native app uses the phone's own on-device model instead.)</div>`;
-  else if (w.status === 'error') controls = `<div class="card" style="border-color:var(--danger)">Could not load the model: ${esc(w.progress)}</div><button class="btn secondary" id="hi-load">Try again</button>`;
-  const inputRow = w.status === 'ready'
-    ? `<div class="row" style="gap:8px;position:sticky;bottom:8px"><input id="hi-input" placeholder="Ask a general health question…" class="grow" ${w.busy ? 'disabled' : ''}/><button class="iconbtn" id="hi-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>`
-    : '';
+    ? `<div class="card bubble-user"><div class="who-label">${icon('user', 14)} You</div>${esc(m.text)}</div>`
+    : m.emergency
+      ? `<div class="card bubble-emergency"><div class="name row" style="color:var(--danger);gap:8px">${icon('alert', 20)} Get help now</div><div class="msg">${esc(m.text)}</div><a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">${icon('phone', 18)} Call ${core.EMERGENCY_NUMBER}</a></div>`
+      : `<div class="card ${m.ai ? 'bubble-bot' : 'bubble-online'}"><div class="who-label">${icon(m.ai ? 'assistant' : 'info', 14)} ${m.ai ? 'Summary by the in-browser AI · based only on the sources above' : 'Live from trusted sources · MedlinePlus, FDA, RxNorm'}</div><div class="msg">${m.pending ? `<span class="spin" style="display:inline-flex;vertical-align:middle">${icon('clock', 16)}</span> ` : ''}${linkify(m.text)}</div></div>`).join('');
+  const modelCard = w.status === 'ready'
+    ? `<div class="caption">${icon('check', 14)} In-browser AI summaries are on.</div>`
+    : w.status === 'loading'
+      ? `<div class="card"><div class="name">Loading the in-browser AI…</div><div class="caption">${esc(w.progress)}</div></div>`
+      : w.status === 'nogpu'
+        ? `<div class="caption">This browser can’t run the in-browser AI (no WebGPU). Answers from trusted sources still work.</div>`
+        : w.status === 'error'
+          ? `<div class="caption warn-text">The in-browser AI couldn’t load: ${esc(w.progress)}. Answers from trusted sources still work.</div>`
+          : `<details class="card"><summary>Optional: plain-language summaries by an in-browser AI</summary><div class="caption" style="margin:6px 0">Downloads an open-source model once (~1 GB) and runs it on this device. Needs Chrome or Edge with WebGPU. It only summarises the sources shown.</div><button class="btn secondary" id="hi-load">Turn on in-browser AI</button></details>`;
+  const chips = w.log.length ? '' : `<div class="chips">${['What is gout?', 'What is warfarin used for?', 'Migraine', 'High blood pressure'].map((c) => `<button class="chip" data-hq="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
   render(`
-    ${topbar('#/', 'Health Info')}
+    ${topbar('#/', 'General health questions')}
     <div class="screen">
-      <div class="card"><div class="caption">General health information only — not a diagnosis and not personal medical advice. Feeling unwell? Open a profile and use “Check a symptom”. This assistant has no internet access.</div></div>
+      <div class="notice"><span class="tile info" style="width:34px;height:34px">${icon('info', 18)}</span><span class="grow caption" style="color:var(--text)">Answers come live from MedlinePlus (NIH), US FDA drug labels and RxNorm, with links. General information only — not a diagnosis.</span></div>
+      ${chips}
       ${logHtml}
-      ${w.busy ? '<div class="caption" style="text-align:center">Thinking…</div>' : ''}
-      ${controls}
-      <div class="disclaimer">General information, not medical advice.</div>
-      ${inputRow}
+      ${modelCard}
+      <div class="row" style="gap:8px;position:sticky;bottom:12px;margin-top:12px"><input id="hi-input" placeholder="Ask about a condition or medicine…" class="grow" ${w.busy ? 'disabled' : ''} autocomplete="off"/><button class="iconbtn" id="hi-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>
+      <div class="disclaimer">For your own records, open a profile and use Ask. If you feel unwell, use “Check a symptom”.</div>
     </div>`);
+  app.querySelectorAll('[data-hq]').forEach((b) => b.addEventListener('click', () => sendHealthMsg(b.dataset.hq)));
+  if (w.log.length) window.scrollTo(0, document.body.scrollHeight);
 }
 
 async function loadWebLLM() {
@@ -1550,23 +1630,40 @@ async function loadWebLLM() {
 
 async function sendHealthMsg(text) {
   const w = webllm;
-  if (!text || !text.trim() || !w.engine || w.busy) return;
-  w.log.push({ role: 'user', text: text.trim() });
-  // Emergency warning signs get the fixed message in code — never a model answer.
-  const flags = core.detectRedFlags(text);
+  if (!text || !text.trim() || w.busy) return;
+  const q = text.trim();
+  w.log.push({ role: 'user', text: q });
+  // Emergency warning signs get the fixed message in code — never a lookup or model answer.
+  const flags = core.detectRedFlags(q);
   if (flags[0]?.level === 'emergency') {
     w.log.push({ role: 'assistant', emergency: true, text: flags.some((f) => f.id === 'self_harm') ? core.SELF_HARM_MESSAGE : core.EMERGENCY_MESSAGE });
-    renderHealthInfo();
-    return;
+    return renderHealthInfo();
   }
+  if (!online()) {
+    w.log.push({ role: 'assistant', text: 'You’re offline. Connect to the internet to look this up in trusted medical sources.' });
+    return renderHealthInfo();
+  }
+  // Medicine name → drug lookup; otherwise the topic of the question.
+  const plan = core.planEnrichment(q, '', [], {}) || { kind: 'topic', term: core.topicOf(q) || q };
+  const msg = { role: 'assistant', pending: true, text: 'Checking trusted medical sources…' };
+  w.log.push(msg);
   w.busy = true; renderHealthInfo();
-  try {
-    const messages = [{ role: 'system', content: HEALTH_SYS }, ...w.log.filter((m) => !m.emergency).map((m) => ({ role: m.role, content: m.text }))];
-    const reply = await w.engine.chat.completions.create({ messages, temperature: 0.4, max_tokens: 400 });
-    const answer = reply && reply.choices && reply.choices[0] && reply.choices[0].message ? reply.choices[0].message.content : '(no answer)';
-    w.log.push({ role: 'assistant', text: answer || '(no answer)' });
-  } catch (e) {
-    w.log.push({ role: 'assistant', text: 'Sorry — something went wrong generating an answer. Please try again.' });
+  const found = await cachedEnrichment(plan);
+  msg.pending = false;
+  msg.text = found || 'I couldn’t find reliable information about that. Try a simpler term (for example the name of a condition or medicine), or ask a doctor or pharmacist.';
+  if (found && w.engine) {
+    try {
+      const reply = await w.engine.chat.completions.create({
+        messages: [
+          { role: 'system', content: `${HEALTH_SYS}\nUse ONLY the SOURCES below. If they do not answer the question, say so. Keep it under 120 words.` },
+          { role: 'user', content: `QUESTION: ${q}\n\nSOURCES:\n${found}` },
+        ],
+        temperature: 0.2,
+        max_tokens: 220,
+      });
+      const answer = reply?.choices?.[0]?.message?.content;
+      if (answer) w.log.push({ role: 'assistant', ai: true, text: answer });
+    } catch (_) { /* the sourced answer above stands on its own */ }
   }
   w.busy = false; renderHealthInfo();
 }

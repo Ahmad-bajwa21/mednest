@@ -27,3 +27,5 @@ export { doseCheck } from '../ai/medicineInfo';
 export { scheduleIssues, sortedTimes } from '../domain/schedule';
 export { identifyMedicine } from '../ai/medicineInfo';
 export { buildVisitSummary, renderVisitSummaryText } from '../domain/visitSummary';
+export { lookupMedicineOnline, lookupTopicOnline, renderDrugInfo, renderTopicInfo } from '../ai/online/medicalSources';
+export { planEnrichment, runEnrichment, topicOf } from '../ai/online/enrich';

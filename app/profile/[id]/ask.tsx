@@ -8,12 +8,13 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useBundle } from '../../../src/features/useBundle';
 import { askCare, type AskContext } from '../../../src/domain/askCare';
 import { useCare } from '../../../src/features/useCare';
+import { planEnrichment, runEnrichment } from '../../../src/ai/online/enrich';
 import { useTheme } from '../../../src/design/theme';
 import { Button, Card, Chip, Disclaimer, Text } from '../../../src/design/components';
 import { BottomTabs } from '../../../src/features/BottomTabs';
 import { layout, radius, space } from '../../../src/design/tokens';
 
-interface Turn { role: 'user' | 'bot'; text: string; sources?: string[]; suggestions?: string[]; emergency?: boolean }
+interface Turn { role: 'user' | 'bot'; text: string; sources?: string[]; suggestions?: string[]; emergency?: boolean; online?: boolean }
 const SUGGESTED = ['What medicines am I taking, and why?', 'When do I take them?', 'Next follow-up?', 'Last sugar test?'];
 
 export default function Ask() {
@@ -47,6 +48,25 @@ export default function Ask() {
     });
     setLog((l) => [...l, { role: 'user', text }, { role: 'bot', text: res?.answer ?? '', sources: res?.sources, suggestions: res?.suggestions, emergency: res?.emergency }]);
     setInput('');
+    // Then live, free information from trusted public sources (MedlinePlus, FDA, RxNorm)
+    // using the phone's own connection. Only medicine names / topic words are sent.
+    if (res && !res.emergency && !res.refusal) {
+      const current = data.medicines.filter((m) => ['active', 'paused', 'pending'].includes(m.status));
+      const plan = planEnrichment(text, res.answer, current, { lastMedicineId: ctx.lastMedicineId, replyMedicineId: res.medicineId });
+      if (plan) {
+        setLog((l) => [...l, { role: 'bot', online: true, text: 'Checking trusted medical sources…' }]);
+        runEnrichment(plan, (url) => fetch(url))
+          .catch(() => null)
+          .then((found) => {
+            setLog((l) => {
+              const copy = [...l];
+              const i = copy.map((t) => t.online).lastIndexOf(true);
+              if (i >= 0) copy[i] = { role: 'bot', online: true, text: found ?? 'I couldn’t reach or find this in the online sources. Check your connection, or ask a pharmacist.' };
+              return copy;
+            });
+          });
+      }
+    }
   };
   const last = [...log].reverse().find((t) => t.role === 'bot');
 
