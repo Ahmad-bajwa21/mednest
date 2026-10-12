@@ -14,6 +14,8 @@ Deployed on Vercel (static, no build step).
   trend, **Things to notice** (code-based pattern notes), **Coming up**
 - `#/profile/:id/add` — add a document: scan with camera / choose from gallery / enter manually
 - `#/profile/:id/review` — check and confirm what was read (unsure fields block saving)
+- `#/profile/:id/assist` — Assistant hub (symptom check, Ask, visit summary, general questions)
+- `#/profile/:id/visit` — doctor visit summary (timeline, structured summary, share/save)
 - `#/profile/:id/assistant` — symptom check (rules-based triage, red flags, history-aware)
 - `#/profile/:id/history` — unified medical history with provenance
 - `#/profile/:id/doses` — today's doses (Taken / Skip / Later) + 14-day history

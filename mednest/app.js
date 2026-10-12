@@ -42,6 +42,58 @@ function calcAge(birthYear) {
 function addDays(iso, n) { return core.addDaysLocal(iso, n); }
 function num(v) { const n = parseFloat(v); return isNaN(n) ? null : n; }
 const timeLabel = (t) => { const r = core.resolveTime(t); return r ? core.formatTime(r) : t; };
+/* ============================== icons ============================== */
+// One consistent line-icon set (24px grid, 1.8 stroke) for every medical concept.
+const ICON_PATHS = {
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+  assistant: '<path d="M21 12a8.5 8.5 0 0 1-12.3 7.6L3.5 21l1.4-5A8.5 8.5 0 1 1 21 12z"/><path d="M12 8.5v7M8.5 12h7"/>',
+  chat: '<path d="M21 12a8.5 8.5 0 0 1-12.3 7.6L3.5 21l1.4-5A8.5 8.5 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 14h4.5"/>',
+  records: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6M9 14h6M9 18h3.5"/>',
+  pill: '<path d="M10.5 3.5a4.95 4.95 0 0 1 7 7l-7 7a4.95 4.95 0 0 1-7-7z"/><path d="M7 7l7 7"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  prescription: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 12h6M9 16h4"/>',
+  lab: '<path d="M9 3h6M10 3v6.5L4.6 18.6A1.6 1.6 0 0 0 6 21h12a1.6 1.6 0 0 0 1.4-2.4L14 9.5V3"/><path d="M7.2 15h9.6"/>',
+  scan: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  symptom: '<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  shield: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  back: '<path d="M15 18l-6-6 6-6"/>',
+  next: '<path d="M9 18l6-6-6-6"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13.5" r="3.5"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  alert: '<path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.5v.01"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16 9.8"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/>',
+  phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  stethoscope: '<path d="M5 3v5a5 5 0 0 0 10 0V3"/><path d="M10 13v2a5 5 0 0 0 10 0v-2"/><circle cx="20" cy="11" r="2"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  share: '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.6M8.2 13.2l7.6 4.6"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/>',
+  logo: '<path d="M12 6v12M6 12h12"/>',
+};
+const icon = (name, size = 22) => `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${name === 'logo' ? 3 : 1.8}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
+const DOC_ICON = { Prescription: 'prescription', 'Lab report': 'lab', 'Scan report': 'scan', 'Discharge summary': 'records', Bill: 'receipt', Other: 'file' };
+const docIcon = (type) => icon(DOC_ICON[type] || 'file');
+const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+const avatar = (p, cls = '') => `<span class="avatar ${cls}" style="background:${esc(p.color || DOT_COLORS[0])}" aria-hidden="true">${esc(initials(p.name))}</span>`;
+// Where a piece of information came from, as a consistent badge.
+const PROVENANCE = {
+  ai: ['Read by MedNest · confirmed by you', 'accent'],
+  you: ['Entered by you', ''],
+  reported: ['You reported', 'info'],
+  doctor: ['Written by doctor', 'ok'],
+  general: ['General information', ''],
+  check: ['Needs checking', 'warn'],
+};
+const badge = (kind) => { const [t, c] = PROVENANCE[kind] || PROVENANCE.you; return `<span class="pill ${c}">${t}</span>`; };
+
 // Medicine times, always in chronological order.
 const timesSorted = (times) => core.sortedTimes(times || []).map(timeLabel);
 
@@ -243,14 +295,19 @@ function render(html) { app.innerHTML = html; wire(); window.scrollTo(0, 0); }
 const go = (route) => { location.hash = route; };
 const routeNow = () => route();
 
+// Bottom navigation: the five places people look for health information.
+// Older screen keys map onto them (e.g. the symptom check and Ask both live under Assistant).
+const TAB_OF = { overview: 'home', home: 'home', assistant: 'assist', ask: 'assist', assist: 'assist', history: 'records', timeline: 'records', records: 'records', meds: 'meds', appointments: 'appts', appts: 'appts' };
 function tabsBar(pid, active) {
-  const t = (r, icon, label, key) => `<a href="#/profile/${pid}${r}" class="${active === key ? 'on' : ''}"><span class="ti">${icon}</span>${label}</a>`;
-  return `<nav class="tabs">${t('', '▦', 'Overview', 'overview')}${t('/history', '≣', 'History', 'history')}${t('/meds', '℞', 'Meds', 'meds')}${t('/assistant', '✚', 'Check', 'assistant')}${t('/ask', '?', 'Ask', 'ask')}</nav>`;
+  const on = TAB_OF[active] || active;
+  const t = (r, ic, label, key) => `<a href="#/profile/${pid}${r}" class="${on === key ? 'on' : ''}" ${on === key ? 'aria-current="page"' : ''}><span class="ti">${icon(ic, 22)}</span>${label}</a>`;
+  return `<nav class="tabs" aria-label="Main">${t('', 'home', 'Home', 'home')}${t('/assist', 'assistant', 'Assistant', 'assist')}${t('/history', 'records', 'Records', 'records')}${t('/meds', 'pill', 'Medicines', 'meds')}${t('/appointments', 'calendar', 'Appointments', 'appts')}</nav>`;
 }
-const adSlot = () => `<div class="adslot">AD</div>`;
+// The web demo shows no ads (the Android app has a labelled banner slot, spec §11).
+const adSlot = () => '';
 const dotHtml = (c) => `<span class="dot" style="background:${esc(c || DOT_COLORS[0])}"></span>`;
 const srcLinks = (pid, ids) => [...new Set(ids)].map((id) => { const d = getDoc(id); return d ? `<a class="inline" href="#/profile/${pid}/doc/${id}">${esc(d.type)}, ${fmtDate(d.docDate)}</a>` : ''; }).filter(Boolean).join(' · ');
-const topbar = (back, title, extra = '') => `<div class="topbar"><button class="iconbtn back" data-go="${back}">‹</button><h1>${title}</h1>${extra}</div>`;
+const topbar = (back, title, extra = '') => `<div class="topbar"><button class="iconbtn back" data-go="${back}" aria-label="Back">${icon('back', 24)}</button><h1>${title}</h1>${extra}</div>`;
 
 /* ============================== onboarding (S2) ============================== */
 function screenWelcome() {
@@ -259,43 +316,54 @@ function screenWelcome() {
 }
 function renderWelcome() {
   const slides = [
-    { ico: '📷', t: 'Photograph your papers', b: 'MedNest reads prescriptions and reports, files them for each family member, and sets medicine and follow-up reminders.' },
-    { ico: '🔒', t: 'It stays on your device', b: 'No account. No upload. Your health records live only in this browser.' },
-    { ico: '🩺', t: 'A helper, not a doctor', b: 'MedNest organises your records and can help you decide when to see a doctor. It does not diagnose, and it never replaces a doctor.' },
+    { ico: 'prescription', t: 'All your medical papers, organised', b: 'Photograph prescriptions and reports. MedNest files them for each family member and sets medicine and follow-up reminders.' },
+    { ico: 'lock', t: 'Private by design', b: 'No account and no upload. Your health records stay on this device, in this browser.' },
+    { ico: 'stethoscope', t: 'A helper, not a doctor', b: 'MedNest organises your records and its symptom check helps you decide when to get care. It does not diagnose, and it never replaces your doctor.' },
   ];
   const i = window.__ob;
   const s = slides[i];
   const last = i === slides.length - 1;
   render(`
-    <div class="topbar"><h1></h1>${!last ? '<button class="textbtn" id="skip">Skip</button>' : ''}</div>
-    <div class="screen" style="text-align:center">
-      <div style="font-size:56px;margin:32px 0 8px">${s.ico}</div>
+    <div class="topbar"><div class="brand"><span class="logo">${icon('logo', 18)}</span><span class="brand-name">MedNest</span></div>${!last ? '<button class="textbtn" id="skip">Skip</button>' : ''}</div>
+    <div class="screen" style="text-align:center;padding-top:24px">
+      <div class="empty" style="padding:24px 0 8px"><div class="ico-wrap" style="width:88px;height:88px;border-radius:28px">${icon(s.ico, 40)}</div></div>
       <div class="title">${s.t}</div>
-      <p class="muted" style="max-width:340px;margin:8px auto">${s.b}</p>
-      ${last ? `<label class="row" style="justify-content:center;gap:10px;margin-top:20px;cursor:pointer"><input type="checkbox" id="understand" style="width:auto"/> I understand</label>` : ''}
-      <div style="margin:24px 0;color:var(--textMuted)">${slides.map((_, k) => (k === i ? '●' : '○')).join(' ')}</div>
+      <p class="muted" style="max-width:360px;margin:8px auto 0">${s.b}</p>
+      ${last ? `<label class="row" style="justify-content:center;gap:10px;margin-top:22px;cursor:pointer"><input type="checkbox" id="understand"/> I understand MedNest is not a doctor</label>` : ''}
+      <div style="margin:24px 0;color:var(--textMuted);letter-spacing:4px" aria-hidden="true">${slides.map((_, k) => (k === i ? '●' : '○')).join('')}</div>
       <button class="btn primary" id="ob-next" ${last ? 'disabled' : ''}>${last ? 'Get started' : 'Next'}</button>
+      ${last ? '<a class="inline" href="./privacy" style="display:inline-block;margin-top:14px">Read the privacy policy</a>' : ''}
     </div>
   `);
 }
 
-/* ============================== profiles ============================== */
+/* ============================== profiles (first screen) ============================== */
 function screenProfiles() {
   const list = DB.profiles.map((p) => {
-    const meds = activeMeds(p.id);
     const docs = byProfile(DB.documents, p.id);
-    const sumLine = !docs.length ? 'No records yet' : meds.length ? `${meds.length} active medicine${meds.length > 1 ? 's' : ''}` : `${docs.length} document${docs.length > 1 ? 's' : ''}`;
+    const meds = activeMeds(p.id);
     const nextDose = core.todaysDoses(byProfile(DB.medicines, p.id), byProfile(DB.doseLogs, p.id), new Date()).find((d) => d.state === 'upcoming' || d.state === 'due');
     const pend = core.pendingConfirmations(careData(p.id), todayISO()).length;
-    const next = nextDose ? `Next: ${nextDose.medicine.name} ${core.formatTime(nextDose.occ.time)}` : 'Next: no reminders today';
-    return `<div class="card link" data-go="#/profile/${p.id}"><div class="row grow">${dotHtml(p.color)}<div class="grow"><div class="name">${esc(p.name)} <span class="muted" style="font-weight:400">${esc(p.relation)}</span></div><div class="list-sub truncate">${esc(sumLine)}</div><div class="caption">${esc(next)}${pend ? ` · <span style="color:var(--warn)">${pend} to confirm</span>` : ''}</div></div></div><span class="arrow">›</span></div>`;
+    const sub = !docs.length && !meds.length ? 'No records yet' : `${meds.length} medicine${meds.length === 1 ? '' : 's'} · ${docs.length} document${docs.length === 1 ? '' : 's'}`;
+    return `<div class="card link" data-go="#/profile/${p.id}" role="link" aria-label="Open ${esc(p.name)}">
+      <div class="row grow">${avatar(p)}<div class="grow">
+        <div class="name">${esc(p.name)} <span class="muted" style="font-weight:400">· ${esc(p.relation)}</span></div>
+        <div class="list-sub truncate">${esc(sub)}</div>
+        <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${nextDose ? `<span class="pill accent">${icon('clock', 13)} ${core.formatTime(nextDose.occ.time)} · ${esc(nextDose.medicine.name)}</span>` : ''}${pend ? `<span class="pill warn">${pend} to confirm</span>` : ''}</div>
+      </div></div><span class="arrow">${icon('next', 20)}</span></div>`;
   }).join('');
-  const addCard = DB.profiles.length < MAX_PROFILES ? `<div class="card link" data-go="#/profile/new"><div class="row grow"><span class="iconbtn" style="pointer-events:none">＋</span><div class="name">Add profile</div></div><span class="arrow">›</span></div>` : '';
+  const addCard = DB.profiles.length < MAX_PROFILES ? `<button class="btn secondary" data-go="#/profile/new">${icon('plus', 20)} Add a family member</button>` : `<div class="counter">${MAX_PROFILES} of ${MAX_PROFILES} profiles</div>`;
   const body = DB.profiles.length
-    ? list + addCard + `<div class="counter">${DB.profiles.length} of ${MAX_PROFILES} profiles</div><button class="textbtn" data-go="#/import" style="display:block;margin:4px auto">Import a profile</button>`
-    : `<div class="empty"><div class="ico">👪</div><p>Add the first person whose records you want to keep.</p><button class="btn primary" data-go="#/profile/new">Add profile</button><button class="textbtn" data-go="#/import">Import a profile</button></div>`;
-  const healthCard = `<div class="card link" data-go="#/health-info"><div class="row grow"><span class="iconbtn" style="pointer-events:none">💬</span><div class="grow"><div class="name">Health Info assistant</div><div class="list-sub">General health questions · runs in your browser, no account</div></div></div><span class="arrow">›</span></div>`;
-  render(`<div class="topbar"><h1>MedNest</h1><button class="iconbtn" data-go="#/settings">⚙</button></div><div class="screen">${body}${healthCard}</div>${adSlot()}`);
+    ? `<h2 class="sec">Whose records? <button class="textbtn" data-go="#/import" style="padding:0">Import</button></h2>${list}${addCard}`
+    : `<div class="empty"><div class="ico-wrap">${icon('user', 30)}</div><p style="color:var(--text);font-weight:600;margin:0">Start with the first person</p><p>Add yourself or a family member whose prescriptions and reports you look after.</p><button class="btn primary" data-go="#/profile/new">${icon('plus', 20)} Add a family member</button><button class="textbtn" data-go="#/import">Import a profile file</button></div>`;
+  render(`
+    <div class="topbar"><div class="brand"><span class="logo">${icon('logo', 18)}</span><span class="brand-name">MedNest</span></div><button class="iconbtn" data-go="#/settings" aria-label="Settings">${icon('settings')}</button></div>
+    <div class="screen">
+      <div class="greeting"><div class="who">Your family’s health, organised</div><div class="muted" style="margin-top:4px">Prescriptions, medicines, reminders and symptom checks — in one calm place.</div></div>
+      ${body}
+      <div class="card link" data-go="#/health-info"><div class="row grow"><span class="tile info">${icon('chat')}</span><div class="grow"><div class="name">General health questions</div><div class="list-sub">An open-source assistant that runs in your browser</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <div class="trust"><span class="tile">${icon('shield')}</span><div class="grow"><div class="name">Private by design</div><div class="caption" style="color:var(--text)">Your records stay in this browser. No account, no upload. <a class="inline" href="#/settings">Privacy &amp; data</a></div></div></div>
+    </div>`);
 }
 
 function screenProfileForm(id) {
@@ -316,46 +384,92 @@ function screenProfileForm(id) {
     </div>`);
 }
 
-/* ============================== overview / dashboard (S7) ============================== */
+/* ============================== home (S7) ============================== */
+// Priorities, top to bottom: anything urgent or needing confirmation, the assistant,
+// today's medicines, appointments, recent documents, then a short health overview.
+function greetingWord() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+
 function screenOverview(id) {
   const p = getProfile(id);
   if (!p) return go('#/');
   const docs = byProfile(DB.documents, id);
-  const results = latestResults(id);
   const notes = patternNotes(id);
   const data = careData(id);
   const pending = core.pendingConfirmations(data, todayISO());
   const doses = core.todaysDoses(data.medicines, data.doseLogs, new Date());
   const appts = core.upcomingAppointments(data.appointments, todayISO()).slice(0, 3);
   const recent = docs.slice().sort((a, b) => (b.docDate || '').localeCompare(a.docDate || '')).slice(0, 3);
-  const doseColor = (s) => (s === 'taken' ? 'ok' : s === 'missed' || s === 'due' ? 'warn' : '');
+  const results = latestResults(id, 1);
+  const meds = activeMeds(id);
+  const lastCheck = byProfile(DB.episodes, id).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const recentUrgent = lastCheck && (lastCheck.disposition === 'emergency' || lastCheck.disposition === 'urgent') && Date.now() - new Date(lastCheck.createdAt).getTime() < 48 * 3600e3 ? lastCheck : null;
+  const taken = doses.filter((d) => d.state === 'taken').length;
+  const doseCls = (s) => (s === 'taken' ? 'ok' : s === 'missed' || s === 'due' ? 'warn' : '');
+  const MON = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short' });
+  const DAY = (iso) => new Date(iso + 'T00:00:00').getDate();
 
-  const pendingHtml = pending.length ? `<h2 class="sec">Pending confirmations (${pending.length})</h2><div class="card" style="border-color:var(--warn)">${pending.slice(0, 4).map((x) => `<div class="link-row" data-go="${x.kind === 'medicine' ? `#/profile/${id}/medicine/${x.id}` : `#/profile/${id}/appointments`}"><div>${esc(x.title)}</div><div class="caption">${esc(x.detail)}</div></div>`).join('<hr class="sep">')}</div>` : '';
-  const dosesHtml = doses.length ? doses.slice(0, 6).map((d) => `<div class="row" style="justify-content:space-between"><span>${core.formatTime(d.occ.time)} · ${esc(d.medicine.name)}${d.medicine.dose ? ' ' + esc(d.medicine.dose) : ''}</span><span class="pill ${doseColor(d.state)}">${DOSE_LABEL[d.state]}</span></div>`).join('<hr class="sep">') : '<div class="muted">No doses scheduled today.</div>';
-  const apptHtml = appts.length ? appts.map((a) => `<div class="row" style="justify-content:space-between"><span>${esc([a.doctor, a.reason].filter(Boolean).join(' · ') || 'Follow-up')}</span><span class="caption">${fmtDate(a.date)}${a.time ? ' ' + esc(a.time) : ''}</span></div>`).join('<hr class="sep">') : '<div class="muted">Nothing planned.</div>';
-  const recentHtml = recent.length ? recent.map((d) => `<div class="row link-row" style="justify-content:space-between" data-go="#/profile/${id}/doc/${d.id}"><span>${esc(d.type)}${d.doctor ? ' · ' + esc(d.doctor) : ''}</span><span class="caption">${fmtDate(d.docDate)}</span></div>`).join('<hr class="sep">') : '<div class="muted">No documents yet.</div>';
-  const resHtml = results.length ? results.map((r) => `<div class="row" style="justify-content:space-between"><span>${esc(r.test)}</span><span class="${r.outOfRange ? 'pill warn' : ''}">${esc(r.value)}${r.unit ? ' ' + esc(r.unit) : ''} <span class="trend ${r.trend}">${r.trend === 'up' ? '▲' : r.trend === 'down' ? '▼' : '='}</span></span></div>`).join('<hr class="sep">') : '<div class="muted">No results yet</div>';
-  const notesHtml = notes.length ? notes.map((n) => `<div style="margin-bottom:10px">${esc(n.text)}<div class="caption">${srcLinks(id, n.sources)}${n.sources.length ? ' · ' : ''}Discuss with your doctor.</div></div>`).join('') : '<div class="muted">Nothing notable yet.</div>';
+  const urgentHtml = recentUrgent ? `<div class="card bubble-emergency"><div class="row"><span class="tile warn" style="background:var(--surface);color:var(--danger)">${icon('alert')}</span><div class="grow"><div class="name" style="color:var(--danger)">${recentUrgent.disposition === 'emergency' ? 'Emergency care was advised' : 'See a doctor today'}</div><div class="list-sub">From the symptom check for ${esc(recentUrgent.complaint.toLowerCase())}. Don’t wait.</div></div></div>${recentUrgent.disposition === 'emergency' ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">${icon('phone', 18)} Call ${core.EMERGENCY_NUMBER}</a>` : ''}</div>` : '';
+  const pendingHtml = pending.length ? `<h2 class="sec">Needs your attention <span class="pill warn">${pending.length}</span></h2><div class="card" style="border-color:var(--warn)">${pending.slice(0, 3).map((x) => `<div class="list-row" data-go="${x.kind === 'medicine' ? `#/profile/${id}/medicine/${x.id}` : `#/profile/${id}/appointments`}"><span class="tile warn">${icon(x.kind === 'medicine' ? 'pill' : 'calendar', 20)}</span><div class="grow"><div class="name" style="font-size:15px">${esc(x.title)}</div><div class="caption">${esc(x.detail)}</div></div>${icon('next', 18)}</div>`).join('')}</div>` : '';
+  const dosesHtml = doses.length
+    ? `<div class="row" style="justify-content:space-between"><span class="caption">${taken} of ${doses.length} taken today</span><a class="inline" href="#/profile/${id}/doses">Open</a></div><div class="progress" role="progressbar" aria-valuenow="${taken}" aria-valuemin="0" aria-valuemax="${doses.length}"><span style="width:${Math.round((taken / doses.length) * 100)}%"></span></div>
+       ${doses.slice(0, 5).map((d) => `<div class="list-row" data-go="#/profile/${id}/doses"><span class="tile">${icon('pill', 20)}</span><div class="grow"><div class="name" style="font-size:15px">${esc(d.medicine.name)}${d.medicine.dose ? ' · ' + esc(d.medicine.dose) : ''}</div><div class="caption">${core.formatTime(d.occ.time)}${d.medicine.instructions ? ' · ' + esc(d.medicine.instructions) : ''}</div></div><span class="pill ${doseCls(d.state)}">${DOSE_LABEL[d.state]}</span></div>`).join('')}`
+    : `<div class="row"><span class="tile">${icon('pill', 20)}</span><div class="grow"><div class="name" style="font-size:15px">No doses scheduled today</div><div class="caption">Medicines with confirmed times appear here with reminders.</div></div></div>`;
+  const apptHtml = appts.length
+    ? appts.map((a) => `<div class="list-row" data-go="#/profile/${id}/appointments"><div class="datebox"><div class="m">${MON(a.date)}</div><div class="d">${DAY(a.date)}</div></div><div class="grow"><div class="name" style="font-size:15px">${esc(a.reason && a.reason !== 'Follow-up' ? a.reason.replace(/^Follow-up:\s*/i, 'Follow-up · ') : 'Follow-up')}</div><div class="caption">${esc(a.doctor || 'Doctor not recorded')}${a.time ? ' · ' + esc(a.time) : ''}</div></div>${icon('next', 18)}</div>`).join('')
+    : `<div class="row"><span class="tile info">${icon('calendar', 20)}</span><div class="grow"><div class="name" style="font-size:15px">Nothing planned</div><div class="caption">Follow-ups from prescriptions appear here after you confirm the date.</div></div></div>`;
+  const recentHtml = recent.length
+    ? recent.map((d) => `<div class="list-row" data-go="#/profile/${id}/doc/${d.id}"><span class="tile info">${docIcon(d.type)}</span><div class="grow"><div class="name" style="font-size:15px">${esc(d.type)}</div><div class="caption">${fmtDate(d.docDate)}${d.doctor ? ' · ' + esc(d.doctor) : ''}</div></div>${icon('next', 18)}</div>`).join('')
+    : `<div class="row"><span class="tile info">${icon('prescription', 20)}</span><div class="grow"><div class="name" style="font-size:15px">No documents yet</div><div class="caption">Scan a prescription or report with “Add document”.</div></div></div>`;
+  const r0 = results[0];
+  const lastResult = r0 ? `${esc(r0.test)} ${esc(r0.value)}${r0.unit ? ' ' + esc(r0.unit) : ''} <span class="trend ${r0.trend}" aria-label="${r0.trend === 'up' ? 'higher than before' : r0.trend === 'down' ? 'lower than before' : 'unchanged'}">${r0.trend === 'up' ? '▲' : r0.trend === 'down' ? '▼' : '='}</span>${r0.outOfRange ? ' <span class="pill warn">outside report range</span>' : ''}` : 'None yet';
+
   render(`
-    <div class="topbar"><button class="iconbtn back" data-go="#/">‹</button>${dotHtml(p.color)}<h1>${esc(p.name)}</h1><button class="iconbtn" data-go="#/profile/${id}/edit">⋮</button></div>
+    <div class="topbar"><button class="iconbtn back" data-go="#/" aria-label="All profiles">${icon('back', 24)}</button>${avatar(p, 'sm')}<h1>${esc(p.name)}</h1><button class="iconbtn" data-go="#/profile/${id}/edit" aria-label="Edit profile">${icon('edit')}</button></div>
     <div class="screen">
-      <h2 class="sec">Summary</h2>
-      <div class="card"><div>${esc(buildSummary(id))}</div><div class="caption" style="margin-top:8px">Updated ${fmtDate(todayISO())} · built from ${docs.length} document${docs.length === 1 ? '' : 's'}</div></div>
+      <div class="greeting"><div class="hi">${greetingWord()}</div><div class="who">${p.relation === 'Self' ? 'Your health today' : `${esc(p.name)}’s health today`}</div></div>
+      ${urgentHtml}
       ${pendingHtml}
-      <h2 class="sec">Today's medicines</h2><div class="card link" data-go="#/profile/${id}/doses"><div class="grow">${dosesHtml}</div><span class="arrow">›</span></div>
-      <h2 class="sec">Upcoming appointments</h2><div class="card link" data-go="#/profile/${id}/appointments"><div class="grow">${apptHtml}</div><span class="arrow">›</span></div>
-      <h2 class="sec">Health assistant</h2>
-      <div class="card link" data-go="#/profile/${id}/assistant" style="border-color:var(--accent)"><div class="grow"><div class="name">Check a symptom</div><div class="list-sub">Answer a few questions and get guidance on what to do next. Not a diagnosis.</div></div><span class="arrow">›</span></div>
-      <h2 class="sec">Recent documents</h2><div class="card">${recentHtml}</div>
-      <h2 class="sec">Latest results</h2><div class="card">${resHtml}</div>
-      <h2 class="sec">Things to notice (${notes.length})</h2><div class="card">${notesHtml}</div>
-      <button class="btn secondary" data-go="#/profile/${id}/visit">Prepare doctor visit summary</button>
-      <button class="btn secondary" data-go="#/profile/${id}/history">Medical history</button>
-      <button class="btn secondary" data-go="#/profile/${id}/summary">Records summary for doctor</button>
+      <div class="hero">
+        <div class="h">${icon('assistant')} Health assistant</div>
+        <p>Feeling unwell? Answer a few questions to know how soon to get care — or ask about medicines and records.</p>
+        <div class="actions"><button class="btn on-hero" data-go="#/profile/${id}/assistant">${icon('symptom', 18)} Check a symptom</button><button class="btn on-hero-outline" data-go="#/profile/${id}/ask">${icon('chat', 18)} Ask a question</button></div>
+      </div>
+      <h2 class="sec">Today’s medicines</h2><div class="card">${dosesHtml}</div>
+      <h2 class="sec">Upcoming appointments <a class="inline" href="#/profile/${id}/appointments">All</a></h2><div class="card">${apptHtml}</div>
+      <h2 class="sec">Recent documents <a class="inline" href="#/profile/${id}/timeline">All</a></h2><div class="card">${recentHtml}</div>
+      <h2 class="sec">Health overview</h2>
+      <div class="stat-grid">
+        <div class="stat"><div class="k">Allergies</div><div class="v" ${p.allergies ? 'style="color:var(--warn)"' : ''}>${esc(p.allergies || 'None recorded')}</div></div>
+        <div class="stat"><div class="k">Medicines</div><div class="v">${meds.length} current</div></div>
+        <div class="stat"><div class="k">Latest result</div><div class="v">${lastResult}</div></div>
+        <div class="stat"><div class="k">Last symptom check</div><div class="v">${lastCheck ? `${esc(lastCheck.complaint)} · ${fmtDate(lastCheck.createdAt.slice(0, 10))}` : 'None'}</div></div>
+      </div>
+      <div class="card"><div class="caption" style="margin-bottom:4px">Summary · built from ${docs.length} document${docs.length === 1 ? '' : 's'}</div>${esc(buildSummary(id))}</div>
+      ${notes.length ? `<h2 class="sec">Things to notice</h2><div class="card">${notes.map((n) => `<div style="margin-bottom:10px">${esc(n.text)}<div class="caption">${srcLinks(id, n.sources)}${n.sources.length ? ' · ' : ''}Discuss with your doctor.</div></div>`).join('')}</div>` : ''}
+      <div class="btn-row"><button class="btn secondary" data-go="#/profile/${id}/visit">${icon('stethoscope', 18)} Doctor visit summary</button><button class="btn secondary" data-go="#/profile/${id}/history">${icon('records', 18)} Medical history</button></div>
       <div class="disclaimer">${DISCLAIMER}</div>
     </div>
-    <button class="fab" data-go="#/profile/${id}/add" aria-label="Add document">＋</button>${tabsBar(id, 'overview')}`);
+    <button class="fab" data-go="#/profile/${id}/add">${icon('plus', 20)} Add document</button>${tabsBar(id, 'home')}`);
 }
+
+/* ============================== assistant hub ============================== */
+function screenAssist(id) {
+  const p = getProfile(id);
+  render(`
+    ${topbar('#/profile/' + id, 'Health assistant')}
+    <div class="screen">
+      <div class="notice"><span class="tile warn" style="width:34px;height:34px">${icon('phone', 18)}</span><div class="grow caption" style="color:var(--text)">Emergency, such as chest pain or trouble breathing? Call ${core.EMERGENCY_NUMBER} now.</div><a class="pill danger" href="tel:${core.EMERGENCY_NUMBER}" style="text-decoration:none">Call</a></div>
+      <div class="card link" data-go="#/profile/${id}/assistant"><div class="row grow"><span class="tile">${icon('symptom')}</span><div class="grow"><div class="name">Check a symptom</div><div class="list-sub">A few questions, then how soon to get care and what to watch for.</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <div class="card link" data-go="#/profile/${id}/ask"><div class="row grow"><span class="tile info">${icon('chat')}</span><div class="grow"><div class="name">Ask about ${p.relation === 'Self' ? 'my' : esc(p.name) + '’s'} records</div><div class="list-sub">Medicines, timings, results, follow-ups and allergies.</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <div class="card link" data-go="#/profile/${id}/visit"><div class="row grow"><span class="tile ok">${icon('stethoscope')}</span><div class="grow"><div class="name">Doctor visit summary</div><div class="list-sub">Your symptoms in order, ready to show the doctor.</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <div class="card link" data-go="#/health-info"><div class="row grow"><span class="tile">${icon('info')}</span><div class="grow"><div class="name">General health questions</div><div class="list-sub">Open-source model in your browser · general information only.</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <div class="caption" style="margin-top:12px">The symptom check and Ask follow fixed, reviewed rules and use your saved records — they don’t invent medical facts. They are not a diagnosis and don’t replace your doctor.</div>
+    </div>${tabsBar(id, 'assist')}`);
+}
+
 
 /* ============================== add document: choose (S8) ============================== */
 function screenAddDoc(id) {
@@ -363,11 +477,11 @@ function screenAddDoc(id) {
   render(`
     ${topbar('#/profile/' + id, 'Add document')}
     <div class="screen">
-      <label class="option" for="in-camera"><span class="oico">📷</span><span class="grow"><span class="name">Scan with camera</span><span class="caption" style="display:block">Take a clear photo of the whole page. You can retake it if it is blurry.</span></span></label>
+      <label class="option" for="in-camera"><span class="oico">${icon('camera')}</span><span class="grow"><span class="name">Scan with camera</span><span class="caption" style="display:block">Take a clear photo of the whole page. You can retake it if it is blurry.</span></span></label>
       <input type="file" id="in-camera" accept="image/*" capture="environment" hidden />
-      <label class="option" for="in-gallery"><span class="oico">🖼</span><span class="grow"><span class="name">Choose from gallery</span><span class="caption" style="display:block">Photos or a PDF of a prescription or report (up to 5 pages).</span></span></label>
+      <label class="option" for="in-gallery"><span class="oico">${icon('image')}</span><span class="grow"><span class="name">Choose from gallery</span><span class="caption" style="display:block">Photos or a PDF of a prescription or report (up to 5 pages).</span></span></label>
       <input type="file" id="in-gallery" accept="image/*,application/pdf" multiple hidden />
-      <div class="option" id="in-manual" role="button"><span class="oico">⌨</span><span class="grow"><span class="name">Enter manually</span><span class="caption" style="display:block">Type the details yourself.</span></span></div>
+      <div class="option" id="in-manual" role="button"><span class="oico">${icon('edit')}</span><span class="grow"><span class="name">Enter manually</span><span class="caption" style="display:block">Type the details yourself.</span></span></div>
       <div class="caption" style="margin-top:16px">Photos are read inside this browser. Nothing is uploaded.</div>
     </div>`);
   $('#in-camera').addEventListener('change', (e) => readFiles(id, [...e.target.files], 'camera'));
@@ -416,7 +530,7 @@ async function readFiles(pid, files, source) {
   if (!files.length) return;
   const draft = newDraft(pid, source);
   window.__doc = draft;
-  const setStatus = (msg) => render(`${topbar('#/profile/' + pid + '/add', 'Reading…')}<div class="screen"><div class="empty"><div class="ico spin">◴</div><p>${esc(msg)}</p><p class="caption">Reading happens in this browser. It can take up to a minute.</p></div></div>`);
+  const setStatus = (msg) => render(`${topbar('#/profile/' + pid + '/add', 'Reading…')}<div class="screen"><div class="empty"><div class="ico-wrap"><span class="spin">${icon('clock', 30)}</span></div><p>${esc(msg)}</p><p class="caption">Reading happens in this browser. It can take up to a minute.</p></div></div>`);
   setStatus('Preparing your photo…');
   const texts = []; let blurry = false; let pdf = false;
   try {
@@ -519,8 +633,8 @@ function screenReview(id) {
       <label class="label">Type</label><div class="chips" id="d-type">${DOC_TYPES.map((t) => `<button class="chip ${d.type === t ? 'sel' : ''}" data-dtype="${t}">${t}</button>`).join('')}</div>
       <div class="row" style="gap:16px"><div class="grow"><label class="label">Date</label><input id="d-date" type="date" class="${fieldCls('date')}" data-key="date" value="${esc(d.docDate)}" />${hint('date')}${okBtn('date')}</div><div class="grow"><label class="label">Doctor</label><input id="d-doctor" value="${esc(d.doctor)}" placeholder="Dr. S. Khan" /></div></div>
       <label class="label">Diagnosis (only if written on the document)</label><input id="d-diag" value="${esc(d.diagnosis)}" />
-      <h2 class="sec">Medicines</h2>${medRows}<button class="textbtn" id="add-med">＋ Add medicine</button>
-      <h2 class="sec">Results</h2>${resRows}<button class="textbtn" id="add-res">＋ Add result</button>
+      <h2 class="sec">Medicines</h2>${medRows}<button class="textbtn" id="add-med">${icon('plus', 18)} Add medicine</button>
+      <h2 class="sec">Results</h2>${resRows}<button class="textbtn" id="add-res">${icon('plus', 18)} Add result</button>
       <h2 class="sec">Follow-up</h2>
       <div class="card">
         <label class="label" style="margin-top:0">As written (optional)</label><input id="f-text" value="${esc(d.followText)}" placeholder="e.g. Review after 7 days" />
@@ -627,7 +741,7 @@ function screenDocDetail(id, docId) {
   const compare = res.map((r) => { const prev = sortedResults(id).find((x) => x.test === r.test && (x.docDate || '') < (doc.docDate || '')); return prev ? `${r.test}: ${prev.value} → ${r.value} (since ${fmtDate(prev.docDate)})` : ''; }).filter(Boolean);
   const images = doc.imageIds || [];
   render(`
-    ${topbar(`#/profile/${id}/timeline`, esc(doc.type), '<button class="iconbtn" id="doc-del">🗑</button>')}
+    ${topbar(`#/profile/${id}/timeline`, esc(doc.type), `<button class="iconbtn" id="doc-del" aria-label="Delete document">${icon('trash')}</button>`)}
     <div class="screen">
       <div class="caption">${fmtDate(doc.docDate)}${doc.doctor ? ' · ' + esc(doc.doctor) : ''}</div>
       <div class="caption">${doc.source && doc.source !== 'manual' ? 'Read automatically, then checked and confirmed by you.' : 'Entered by you.'}</div>
@@ -648,7 +762,7 @@ function screenTimeline(id) {
   if (!p) return go('#/');
   const docs = byProfile(DB.documents, id).slice().sort((a, b) => (b.docDate || '').localeCompare(a.docDate || ''));
   let body;
-  if (!docs.length) body = `<div class="empty"><div class="ico">≣</div><p>No documents yet.</p><button class="btn primary" data-go="#/profile/${id}/add">Add document</button></div>`;
+  if (!docs.length) body = `<div class="empty"><div class="ico-wrap">${icon('prescription', 30)}</div><p>No documents yet.</p><button class="btn primary" data-go="#/profile/${id}/add">Add document</button></div>`;
   else {
     const groups = {};
     docs.forEach((doc) => { const k = fmtMonth(doc.docDate); (groups[k] ||= []).push(doc); });
@@ -663,7 +777,9 @@ function screenTimeline(id) {
 }
 
 /* ============================== medical history (proposal §2/§8) ============================== */
-const HISTORY_ICON = { document: '📄', diagnosis: '🩺', medicine_start: '℞', medicine_change: '✎', symptom: '💬', appointment: '📅' };
+const HISTORY_ICON = { document: 'prescription', diagnosis: 'stethoscope', medicine_start: 'pill', medicine_change: 'edit', symptom: 'symptom', appointment: 'calendar' };
+// Map the provenance sentence from core.historyEntries to a consistent badge.
+const provBadge = (text) => (/doctor/i.test(text) ? badge('doctor') : /reported by you/i.test(text) ? badge('reported') : /read by AI|read automatically|AI-read/i.test(text) ? badge('ai') : badge('you'));
 function screenHistory(id) {
   const p = getProfile(id);
   const entries = core.historyEntries(careData(id));
@@ -671,8 +787,8 @@ function screenHistory(id) {
   for (const e of entries) { const m = fmtMonth(e.date.slice(0, 10)); const g = groups.find((x) => x[0] === m); g ? g[1].push(e) : groups.push([m, [e]]); }
   const link = (e) => (e.kind === 'document' || e.kind === 'diagnosis' ? `#/profile/${id}/doc/${e.refId}` : e.kind.startsWith('medicine') ? `#/profile/${id}/medicine/${e.refId}` : e.kind === 'appointment' ? `#/profile/${id}/appointments` : `#/profile/${id}/episode/${e.refId}`);
   const body = entries.length
-    ? groups.map(([month, list]) => `<h2 class="sec">${esc(month)}</h2>${list.map((e) => `<div class="card link" data-go="${link(e)}"><div class="row grow" style="align-items:flex-start"><span style="font-size:18px">${HISTORY_ICON[e.kind]}</span><div class="grow"><div class="name">${esc(e.title)}</div>${e.detail ? `<div class="list-sub">${esc(e.detail)}</div>` : ''}<div class="caption">${fmtDate(e.date.slice(0, 10))} · ${esc(e.provenance)}</div></div></div><span class="arrow">›</span></div>`).join('')}`).join('')
-    : `<div class="empty"><div class="ico">≣</div><p>Nothing recorded yet. Add a document or check a symptom.</p></div>`;
+    ? groups.map(([month, list]) => `<h2 class="sec">${esc(month)}</h2>${list.map((e) => `<div class="card link" data-go="${link(e)}"><div class="row grow" style="align-items:flex-start"><span class="tile ${e.kind === 'symptom' ? 'info' : e.kind === 'diagnosis' ? 'ok' : ''}">${e.kind === 'document' ? docIcon(e.title.split(' · ')[0]) : icon(HISTORY_ICON[e.kind], 20)}</span><div class="grow"><div class="name">${esc(e.title)}</div>${e.detail ? `<div class="list-sub">${esc(e.detail)}</div>` : ''}<div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap"><span class="caption">${fmtDate(e.date.slice(0, 10))}</span>${provBadge(e.provenance)}</div></div></div><span class="arrow">${icon('next', 20)}</span></div>`).join('')}`).join('')
+    : `<div class="empty"><div class="ico-wrap">${icon('records', 30)}</div><p>Nothing recorded yet. Add a document or check a symptom.</p></div>`;
   render(`
     ${topbar('#/profile/' + id, 'Medical history')}
     <div class="screen">
@@ -719,19 +835,20 @@ function renderAssistant(id) {
   const t = window.__tri;
   const p = getProfile(id);
   const num112 = core.EMERGENCY_NUMBER;
+  // Each message says who it is from, so patient answers and assistant guidance never blur.
   const bubble = (b) => b.role === 'user'
-    ? `<div class="card bubble-user">${esc(b.msg.text)}</div>`
-    : `<div class="card ${b.msg.kind === 'emergency' ? 'bubble-emergency' : b.msg.kind === 'summary' ? 'bubble-summary' : 'bubble-bot'}">${b.msg.kind === 'emergency' ? '<div class="name" style="color:var(--danger)">Get help now</div>' : ''}<div class="msg">${esc(b.msg.text)}</div>${b.msg.kind === 'emergency' ? `<a class="btn danger" href="tel:${num112}">Call ${num112}</a>` : ''}</div>`;
+    ? `<div class="card bubble-user"><div class="who-label">${icon('user', 14)} You</div>${esc(b.msg.text)}</div>`
+    : `<div class="card ${b.msg.kind === 'emergency' ? 'bubble-emergency' : b.msg.kind === 'summary' ? 'bubble-summary' : 'bubble-bot'}">${b.msg.kind === 'emergency' ? `<div class="name row" style="color:var(--danger);gap:8px">${icon('alert', 20)} Get help now</div>` : `<div class="who-label">${icon('assistant', 14)} MedNest symptom check · rules-based${b.msg.kind === 'summary' ? ' · not a diagnosis' : ''}</div>`}<div class="msg">${esc(b.msg.text)}</div>${b.msg.kind === 'emergency' ? `<a class="btn danger" href="tel:${num112}">${icon('phone', 18)} Call ${num112}</a>` : ''}</div>`;
   const last = [...t.bubbles].reverse().find((b) => b.role === 'assistant')?.msg;
   const quick = !t.state.done && last?.quickReplies?.length ? `<div class="chips" style="margin-top:8px">${last.quickReplies.map((q) => `<button class="chip" data-qr="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '';
   render(`
     ${topbar('#/profile/' + id, `Symptom check · ${esc(p.name)}`)}
     <div class="screen">
-      <div class="card row" style="justify-content:space-between;padding:10px 12px"><span class="caption">Rules-based assistant, not a doctor. Emergency? Call ${num112} now.</span><a class="pill" style="color:var(--danger);border-color:var(--danger);text-decoration:none" href="tel:${num112}">Call ${num112}</a></div>
+      <div class="notice"><span class="tile warn" style="width:34px;height:34px">${icon('phone', 18)}</span><span class="grow caption" style="color:var(--text)">Not a doctor. Emergency? Call ${num112} now.</span><a class="pill danger" style="text-decoration:none" href="tel:${num112}">Call ${num112}</a></div>
       ${t.bubbles.map(bubble).join('')}
       ${t.busy ? '<div class="caption">…</div>' : ''}
       ${quick}
-      ${t.state.done ? `${t.savedId ? `<div class="caption" style="text-align:center;margin-top:12px">Saved to ${esc(p.name)}’s medical history.</div>` : ''}<button class="btn primary" data-go="#/profile/${id}/visit">Prepare doctor visit summary</button><button class="btn secondary" id="tri-new">Start a new check</button><button class="textbtn" data-go="#/profile/${id}/history" style="display:block;margin:4px auto">See medical history</button>` : `<div class="row" style="gap:8px;position:sticky;bottom:72px;margin-top:12px"><input id="tri-input" placeholder="Type your answer…" class="grow" autocomplete="off"/><button class="iconbtn" id="tri-send" style="background:var(--accent);color:var(--onAccent)">➤</button></div>`}
+      ${t.state.done ? `${t.savedId ? `<div class="caption" style="text-align:center;margin-top:12px">Saved to ${esc(p.name)}’s medical history.</div>` : ''}<button class="btn primary" data-go="#/profile/${id}/visit">Prepare doctor visit summary</button><button class="btn secondary" id="tri-new">Start a new check</button><button class="textbtn" data-go="#/profile/${id}/history" style="display:block;margin:4px auto">See medical history</button>` : `<div class="row" style="gap:8px;position:sticky;bottom:76px;margin-top:12px"><input id="tri-input" placeholder="Type your answer…" class="grow" autocomplete="off"/><button class="iconbtn" id="tri-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>`}
       <div class="disclaimer">${esc(core.TRIAGE_DISCLAIMER)}</div>
     </div>${tabsBar(id, 'assistant')}`);
   const send = async (text) => {
@@ -889,7 +1006,7 @@ function screenDoses(id) {
     ${topbar(`#/profile/${id}/meds`, 'Doses')}
     <div class="screen">
       ${banner}
-      <h2 class="sec">Today</h2>${today.length ? today.map((d) => row(d, true)).join('') : '<div class="empty"><div class="ico">℞</div><p>No doses scheduled today.</p></div>'}
+      <h2 class="sec">Today</h2>${today.length ? today.map((d) => row(d, true)).join('') : `<div class="empty"><div class="ico-wrap">${icon('pill', 30)}</div><p>No doses scheduled today.</p></div>`}
       ${past.length ? `<h2 class="sec">Last 14 days</h2>${past.map((d) => row(d, false)).join('')}` : ''}
       <div class="disclaimer">Marking a dose only records what you tell MedNest. ${DISCLAIMER}</div>
     </div>${tabsBar(id, 'meds')}`);
@@ -910,17 +1027,17 @@ function screenAppointments(id, editing = null) {
   const editor = () => `<div class="card" style="border-color:var(--accent)"><label class="label" style="margin-top:0">Date</label><input id="a-date" type="date" value="${esc(ed.date || '')}" /><label class="label">Time (optional)</label><input id="a-time" type="time" value="${esc(ed.time || '')}" /><label class="label">Doctor</label><input id="a-doctor" value="${esc(ed.doctor || '')}" /><label class="label">Reason</label><input id="a-reason" value="${esc(ed.reason || '')}" /><button class="btn primary" id="a-save">Confirm date &amp; set reminders</button><button class="textbtn" id="a-cancel">Cancel</button></div>`;
   const basisText = (a) => (a.basis === 'relative_to_document' ? 'Calculated from the document date — please check.' : a.basis === 'written_date' ? 'Date as written on the document — please check.' : 'Please choose the date.');
   render(`
-    ${topbar('#/profile/' + id, 'Follow-ups', '<button class="textbtn" data-edit="new">＋ Add</button>')}
+    ${topbar('#/profile/' + id, 'Follow-ups', `<button class="textbtn" data-edit="new">${icon('plus', 18)} Add</button>`)}
     <div class="screen">
       ${editing === 'new' ? editor() : ''}
       ${proposed.length ? '<h2 class="sec">Needs your confirmation</h2>' : ''}
       ${proposed.map((a) => (editing === a.id ? editor() : `<div class="card" style="border-color:var(--warn)"><div class="name">${a.date ? 'Proposed: ' + fmtDate(a.date) : 'Date not clear'}</div>${a.sourceText ? `<div class="list-sub">Document says: “${esc(a.sourceText)}”</div>` : ''}<div class="caption">${basisText(a)}</div><button class="btn primary" data-edit="${a.id}">${a.date ? 'Check and confirm' : 'Choose date'}</button><button class="textbtn" data-ast="${a.id}" data-v="cancelled">Not needed</button></div>`)).join('')}
       <h2 class="sec">Planned</h2>
-      ${planned.length || editing === 'new' ? '' : '<div class="empty"><div class="ico">📅</div><p>No follow-ups planned.</p></div>'}
+      ${planned.length || editing === 'new' ? '' : `<div class="empty"><div class="ico-wrap">${icon('calendar', 30)}</div><p>No follow-ups planned.</p><p class="caption">Follow-ups from prescriptions appear here after you confirm the date. You can also add one.</p></div>`}
       ${planned.map((a) => (editing === a.id ? editor() : `<div class="card" ${a.date < today ? 'style="border-color:var(--warn)"' : ''}><div class="row" style="justify-content:space-between"><span class="name">${fmtDate(a.date)}${a.time ? ' · ' + esc(a.time) : ''}</span>${a.date < today ? '<span class="pill warn">Date passed</span>' : ''}</div><div class="list-sub">${esc([a.doctor, a.reason].filter(Boolean).join(' · ') || 'Follow-up')}</div><div class="caption">Reminders: the evening before and on the day.</div><div class="row" style="flex-wrap:wrap;gap:0"><button class="textbtn" data-ast="${a.id}" data-v="completed">Mark done</button><button class="textbtn" data-edit="${a.id}">Reschedule</button><button class="textbtn" data-ast="${a.id}" data-v="cancelled">Cancel</button></div></div>`)).join('')}
       ${done.length ? `<h2 class="sec">Past</h2>${done.map((a) => `<div class="card"><div>${fmtDate(a.date)} · ${a.status === 'completed' ? 'Done' : 'Cancelled'}</div><div class="caption">${esc([a.doctor, a.reason].filter(Boolean).join(' · '))}</div></div>`).join('')}` : ''}
       <div class="disclaimer">MedNest reminds you; it does not book appointments. ${DISCLAIMER}</div>
-    </div>`);
+    </div>${tabsBar(id, 'appts')}`);
   app.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => screenAppointments(id, b.dataset.edit)));
   app.querySelectorAll('[data-ast]').forEach((b) => b.addEventListener('click', () => { const a = DB.appointments.find((x) => x.id === b.dataset.ast); const before = a.status; a.status = b.dataset.v; a.updatedAt = nowIso(); audit(id, 'appointment', a.id, 'status', { before, after: a.status }); save(); screenAppointments(id); }));
   $('#a-cancel')?.addEventListener('click', () => screenAppointments(id));
@@ -948,8 +1065,8 @@ function renderAsk(id) {
   const chat = window.__chat;
   const chips = ['What medicines am I taking, and why?', 'When do I take them?', 'Next follow-up?', 'Last sugar test?'];
   const logHtml = chat.log.map((m) => m.role === 'user'
-    ? `<div class="card" style="margin-left:40px;border-color:var(--accent)"><strong>You:</strong> ${esc(m.text)}</div>`
-    : `<div class="card ${m.emergency ? 'bubble-emergency' : ''}"><div class="msg">${esc(m.text)}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
+    ? `<div class="card bubble-user"><div class="who-label">${icon('user', 14)} You</div>${esc(m.text)}</div>`
+    : `<div class="card ${m.emergency ? 'bubble-emergency' : 'bubble-bot'}"><div class="who-label">${icon('chat', 14)} MedNest · from your records + general medicine information</div><div class="msg">${esc(m.text)}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
   const lastBot = [...chat.log].reverse().find((m) => m.role === 'bot');
   const addBtn = lastBot?.addMedicine && !lastBot.added ? `<button class="btn primary" id="ask-add">Add ${esc(lastBot.addMedicine.name)}${lastBot.addMedicine.dose ? ' ' + esc(lastBot.addMedicine.dose) : ''} to medicines</button>` : '';
   const followChips = addBtn + (lastBot?.suggestions?.length ? `<div class="chips" style="margin-top:8px">${lastBot.suggestions.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '');
@@ -959,7 +1076,7 @@ function renderAsk(id) {
       ${chat.log.length ? '' : `<div class="card"><div class="caption">Ask about ${esc(p.name)}'s medicines (what they are for, when to take them, for how long), results, follow-ups, allergies or doses. To talk through a symptom, use <a class="inline" href="#/profile/${id}/assistant">Check a symptom</a>.</div></div>`}
       ${chat.log.length ? logHtml + followChips : `<div class="chips">${chips.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}<button class="chip" data-go="#/profile/${id}/assistant">Check a symptom →</button></div>`}
       <div class="disclaimer">${DISCLAIMER}</div>
-      <div class="row" style="gap:8px;position:sticky;bottom:72px"><input id="ask-input" placeholder="Ask about ${esc(p.name)}…" class="grow"/><button class="iconbtn" id="ask-send" style="background:var(--accent);color:var(--onAccent)">➤</button></div>
+      <div class="row" style="gap:8px;position:sticky;bottom:76px"><input id="ask-input" placeholder="Ask about ${esc(p.name)}…" class="grow"/><button class="iconbtn" id="ask-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>
     </div>${tabsBar(id, 'ask')}`);
 }
 
@@ -1015,7 +1132,7 @@ function screenVisitSummary(id) {
       ${urgent}
       <div class="caption">Built from what you reported in MedNest and your saved records. Review it, correct anything wrong, then show or send it to your doctor. It is not a diagnosis.</div>
       <div class="chips" style="margin-top:10px">${VISIT_PERIODS.map(([v, l]) => `<button class="chip ${period === v ? 'sel' : ''}" data-period="${v}">${l}</button>`).join('')}</div>
-      ${s.empty ? `<div class="empty"><div class="ico">🩺</div><p>No symptoms reported in this period.</p><button class="btn primary" data-go="#/profile/${id}/assistant">Check a symptom</button></div>` : `
+      ${s.empty ? `<div class="empty"><div class="ico-wrap">${icon('stethoscope', 30)}</div><p>No symptoms reported in this period.</p><button class="btn primary" data-go="#/profile/${id}/assistant">Check a symptom</button></div>` : `
       <h2 class="sec">Timeline</h2><div class="card">${timeline}</div>
       <h2 class="sec">Summary</h2>${blocks}`}
       <h2 class="sec">Records in MedNest</h2>
@@ -1145,23 +1262,20 @@ function screenImport() {
 
 function screenSettings() {
   const used = (() => { try { return (new Blob([localStorage.getItem(KEY) || '']).size / 1024).toFixed(1) + ' KB'; } catch { return '—'; } })();
-  const perm = typeof Notification === 'undefined' ? 'Not supported' : { granted: 'On (while open)', denied: 'Blocked', default: 'Off' }[Notification.permission];
+  const perm = typeof Notification === 'undefined' ? 'Not supported' : { granted: 'On while MedNest is open', denied: 'Blocked in browser settings', default: 'Off — tap to turn on' }[Notification.permission];
   render(`
     ${topbar('#/', 'Settings')}
     <div class="screen">
-      <h2 class="sec">Data</h2>
-      <div class="card link" id="export"><div class="grow">Export all data (JSON)</div><span class="arrow">›</span></div>
-      <div class="card"><div class="row" style="justify-content:space-between"><span>Storage used</span><span class="muted">${used} + photos</span></div></div>
-      <div class="card link" id="wipe"><div class="grow" style="color:var(--danger)">Delete all data</div><span class="arrow">›</span></div>
-      <h2 class="sec">App</h2>
-      <div class="card link" id="notif"><div class="row grow" style="justify-content:space-between"><span>Reminders</span><span class="muted">${perm}</span></div></div>
-      <div class="card"><div class="row" style="justify-content:space-between"><span>Theme</span><span class="muted">System</span></div></div>
-      <div class="card"><div class="row" style="justify-content:space-between"><span>Language</span><span class="muted">English</span></div></div>
-      <h2 class="sec">About</h2>
-      <div class="card link" data-href="./privacy"><div class="grow">Privacy policy</div><span class="arrow">›</span></div>
-      <div class="card"><div class="grow muted">MedNest organises your records and its symptom check can help you decide when to see a doctor. It does not diagnose and does not replace a doctor. In an emergency call ${core.EMERGENCY_NUMBER}.</div></div>
-      <div class="counter">MedNest web · v1.1.0 · ${esc(core.TRIAGE_ENGINE_VERSION)}</div>
-      <div class="caption" style="text-align:center;margin-top:8px">Your data is stored only in this browser.</div>
+      <h2 class="sec">Privacy &amp; data</h2>
+      <div class="trust"><span class="tile">${icon('shield')}</span><div class="grow"><div class="name">Your records stay on this device</div><div class="caption" style="color:var(--text)">Stored only in this browser (${used} plus photos). No account, no upload, no tracking of health data. Photos are read in your browser.</div></div></div>
+      <div class="card link" id="export"><div class="row grow"><span class="tile ">${icon('download', 20)}</span><div class="grow"><div class="name">Export all data</div><div class="list-sub">Download a copy of every record (JSON)</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <div class="card link" data-href="./privacy"><div class="row grow"><span class="tile ">${icon('lock', 20)}</span><div class="grow"><div class="name">Privacy policy</div><div class="list-sub">What is stored, where, and how to delete it</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <div class="card link" id="wipe"><div class="row grow"><span class="tile warn">${icon('trash', 20)}</span><div class="grow"><div class="name">Delete all data</div><div class="list-sub">Permanently remove all profiles, records and photos</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <h2 class="sec">Reminders</h2>
+      <div class="card link" id="notif"><div class="row grow"><span class="tile ">${icon('clock', 20)}</span><div class="grow"><div class="name">Medicine &amp; follow-up reminders</div><div class="list-sub">${perm}</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
+      <h2 class="sec">About MedNest</h2>
+      <div class="card"><div class="row" style="align-items:flex-start"><span class="tile">${icon('stethoscope', 20)}</span><div class="grow caption" style="color:var(--text)">MedNest organises your records, and its symptom check helps you decide when to get care. It does not diagnose and does not replace your doctor. In an emergency call ${core.EMERGENCY_NUMBER}.</div></div></div>
+      <div class="counter">MedNest web · v1.2.0 · ${esc(core.TRIAGE_ENGINE_VERSION)}</div>
     </div>`);
   $('#notif')?.addEventListener('click', async () => { if (typeof Notification !== 'undefined' && Notification.permission === 'default') { await Notification.requestPermission(); screenSettings(); } });
 }
@@ -1405,7 +1519,7 @@ function renderHealthInfo() {
   else if (w.status === 'nogpu') controls = `<div class="card" style="border-color:var(--warn)">This browser doesn't support WebGPU, so the in-browser model can't run here. Try Chrome or Edge on a desktop/laptop. (The native app uses the phone's own on-device model instead.)</div>`;
   else if (w.status === 'error') controls = `<div class="card" style="border-color:var(--danger)">Could not load the model: ${esc(w.progress)}</div><button class="btn secondary" id="hi-load">Try again</button>`;
   const inputRow = w.status === 'ready'
-    ? `<div class="row" style="gap:8px;position:sticky;bottom:8px"><input id="hi-input" placeholder="Ask a general health question…" class="grow" ${w.busy ? 'disabled' : ''}/><button class="iconbtn" id="hi-send" style="background:var(--accent);color:var(--onAccent)">➤</button></div>`
+    ? `<div class="row" style="gap:8px;position:sticky;bottom:8px"><input id="hi-input" placeholder="Ask a general health question…" class="grow" ${w.busy ? 'disabled' : ''}/><button class="iconbtn" id="hi-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>`
     : '';
   render(`
     ${topbar('#/', 'Health Info')}
@@ -1483,6 +1597,7 @@ function route() {
       case 'medicine': return screenMedicine(id, parts[3], parts[4] === 'edit');
       case 'doses': return screenDoses(id);
       case 'appointments': return screenAppointments(id);
+      case 'assist': return screenAssist(id);
       case 'assistant': return screenAssistant(id);
       case 'ask': return screenAsk(id);
       case 'summary': return screenSummary(id);

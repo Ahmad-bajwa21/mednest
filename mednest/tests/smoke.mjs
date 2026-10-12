@@ -78,6 +78,7 @@ const routes = [
   [`#/profile/${PID}/medicine/m1`, 'medicine detail'],
   [`#/profile/${PID}/review`, 'review (no draft)'],
   [`#/profile/${PID}/visit`, 'visit summary'],
+  [`#/profile/${PID}/assist`, 'assistant hub'],
 ];
 
 let pass = 0, fail = 0;
@@ -102,7 +103,8 @@ globalThis.__hashchange();
 checks.push(['overview shows rising HbA1c note', /HbA1c has risen across the last 3 readings \(6\.5, 6\.8, 7\.2\)/.test(lastHTML)]);
 checks.push(['overview shows out-of-range warn', /pill warn/.test(lastHTML)]);
 checks.push(['summary built with age', /\d+ years, F/.test(lastHTML)]);
-checks.push(["today's medicines shows Metformin doses", /8:00 AM · Metformin/.test(lastHTML) && /9:00 PM · Metformin/.test(lastHTML)]);
+checks.push(["today's medicines shows Metformin doses", /Metformin · 500 mg/.test(lastHTML) && /8:00 AM/.test(lastHTML) && /9:00 PM/.test(lastHTML) && /0 of 2 taken today/.test(lastHTML)]);
+checks.push(['home uses the new navigation', /aria-label="Main"/.test(lastHTML) && />Appointments</.test(lastHTML) && />Assistant</.test(lastHTML)]);
 checks.push(['v1 follow-up migrated to an upcoming appointment', /Upcoming appointments[\s\S]*15 Oct 2026|Upcoming appointments[\s\S]*2026/.test(lastHTML) && !/Nothing planned/.test(lastHTML)]);
 checks.push(['dashboard links to symptom check', /Check a symptom/.test(lastHTML)]);
 globalThis.location.hash = `#/profile/${PID}/doc/${D1}`;

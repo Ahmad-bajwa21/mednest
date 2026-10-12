@@ -84,6 +84,21 @@ recommend", §15 out-of-scope "diagnosis, risk scores, treatment suggestions"):
 - Deleting a document / profile / all data now also deletes the image files.
 - **Still open:** document images are not yet AES-256-GCM encrypted at rest (spec §10).
 
+## Design language (2026-10-13)
+- Calm clinical palette shared by web and Android: medical teal `#0B7A75` (primary),
+  soft blue (information), mint (supportive surfaces); amber/red only for status.
+  Inter typeface, 1px borders with a whisper of elevation, no gradients.
+- One line-icon set (24px, 1.8 stroke) for medicines, prescriptions, lab reports,
+  symptoms, appointments and records — no emoji in the UI.
+- Navigation: Home · Assistant · Records · Medicines · Appointments. The Assistant
+  hub holds the symptom check, Ask, the doctor visit summary and general questions.
+- Provenance badges everywhere: Read by MedNest · confirmed by you / Entered by you /
+  You reported / Written by doctor / General information / Needs checking.
+- The web demo no longer shows the "AD" placeholder; the Android app keeps the
+  labelled banner slot from spec §11.
+- Android got the palette and the new tabs; its screens still need the full visual
+  pass (icon set needs react-native-svg).
+
 ## Open / to verify before release
 - Library versions in `package.json` are best-effort for 2026 — verify current stable at
   build time (spec §9.1 VERIFY).

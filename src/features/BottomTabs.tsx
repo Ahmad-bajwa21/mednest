@@ -5,16 +5,21 @@ import { useTheme } from '../design/theme';
 import { Text } from '../design/components';
 import { layout, space } from '../design/tokens';
 
-type Key = 'overview' | 'timeline' | 'meds' | 'ask';
+// Five places people look for health information (same as the web app). Older screen
+// keys map onto them so existing screens keep working.
+type Key = 'home' | 'assist' | 'records' | 'meds' | 'appts' | 'overview' | 'timeline' | 'ask';
+const ALIAS: Record<string, Key> = { overview: 'home', timeline: 'records', ask: 'assist' };
 const TABS: Array<{ key: Key; icon: string; label: string; path: (id: string) => string }> = [
-  { key: 'overview', icon: '▦', label: 'Overview', path: (id) => `/profile/${id}` },
-  { key: 'timeline', icon: '≣', label: 'Timeline', path: (id) => `/profile/${id}/timeline` },
-  { key: 'meds', icon: '℞', label: 'Meds', path: (id) => `/profile/${id}/meds` },
-  { key: 'ask', icon: '?', label: 'Ask', path: (id) => `/profile/${id}/ask` },
+  { key: 'home', icon: '⌂', label: 'Home', path: (id) => `/profile/${id}` },
+  { key: 'assist', icon: '✚', label: 'Assistant', path: (id) => `/profile/${id}/assistant` },
+  { key: 'records', icon: '≣', label: 'Records', path: (id) => `/profile/${id}/history` },
+  { key: 'meds', icon: '℞', label: 'Medicines', path: (id) => `/profile/${id}/meds` },
+  { key: 'appts', icon: '▣', label: 'Appointments', path: (id) => `/profile/${id}/appointments` },
 ];
 
-export function BottomTabs({ id, active }: { id: string; active: Key }) {
+export function BottomTabs({ id, active: raw }: { id: string; active: Key }) {
   const { c } = useTheme();
+  const active = ALIAS[raw] ?? raw;
   return (
     <View style={{ flexDirection: 'row', borderTopWidth: layout.borderWidth, borderColor: c.border, backgroundColor: c.bg }}>
       {TABS.map((t) => (

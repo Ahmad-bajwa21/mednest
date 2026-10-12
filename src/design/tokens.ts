@@ -16,35 +16,37 @@ export interface Palette {
   ok: string;
 }
 
+// Calm clinical palette shared with the web app: medical teal (primary), soft blue
+// (information), mint (supportive surfaces). Amber/red are status-only.
 export const palettes: Record<ThemeName, Palette> = {
   light: {
-    bg: '#FFFFFF',
-    surface: '#F6F7F8',
-    border: '#E3E6E8',
-    text: '#111417',
-    textMuted: '#5E6870',
-    accent: '#0F766E',
+    bg: '#F5F8F9',
+    surface: '#FFFFFF',
+    border: '#DDE6E9',
+    text: '#10242C',
+    textMuted: '#566A73',
+    accent: '#0B7A75',
     onAccent: '#FFFFFF',
-    warn: '#B45309',
+    warn: '#A35A07',
     danger: '#B42318',
-    ok: '#15803D',
+    ok: '#18794E',
   },
   dark: {
-    bg: '#0E1113',
-    surface: '#171B1E',
-    border: '#2A3035',
-    text: '#F2F4F5',
-    textMuted: '#9AA5AD',
-    accent: '#2DB5A8',
-    onAccent: '#06211E',
-    warn: '#F0A04B',
+    bg: '#0D1518',
+    surface: '#141F23',
+    border: '#26363C',
+    text: '#E9F1F3',
+    textMuted: '#9DB0B7',
+    accent: '#3CC2B4',
+    onAccent: '#04201D',
+    warn: '#F2A64C',
     danger: '#F2776B',
-    ok: '#4CC38A',
+    ok: '#5BD196',
   },
 };
 
 // Flat profile colour dots the user can pick from (§2.2).
-export const PROFILE_DOT_COLORS = ['#0F766E', '#1D4ED8', '#9333EA', '#C2410C'] as const;
+export const PROFILE_DOT_COLORS = ['#0B7A75', '#1D4ED8', '#9333EA', '#C2410C'] as const;
 
 // Spacing grid: 4dp base (§2.4).
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
