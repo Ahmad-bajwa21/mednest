@@ -494,7 +494,7 @@ function screenReview(id) {
   const medRows = d.meds.map((m, i) => `
     <div class="card">
       <label class="label">Name</label><input class="${fieldCls(`med.${i}.name`)}" data-m="${i}" data-k="name" data-key="med.${i}.name" value="${esc(m.name)}" placeholder="Medicine name" />${hint(`med.${i}.name`)}${okBtn(`med.${i}.name`)}
-      <label class="label">Dose</label><input class="${fieldCls(`med.${i}.dose`)}" data-m="${i}" data-k="dose" data-key="med.${i}.dose" value="${esc(m.dose)}" placeholder="e.g. 500 mg" />${hint(`med.${i}.dose`)}${okBtn(`med.${i}.dose`)}
+      <label class="label">Dose</label><input class="${fieldCls(`med.${i}.dose`)}" data-m="${i}" data-k="dose" data-key="med.${i}.dose" value="${esc(m.dose)}" placeholder="e.g. 500 mg" />${hint(`med.${i}.dose`)}${okBtn(`med.${i}.dose`)}${core.doseCheck(m.name, m.dose) ? `<div class="caption warn-text">⚠ ${esc(core.doseCheck(m.name, m.dose))}</div>` : ''}
       ${m.asWritten ? `<div class="caption" style="margin-top:8px">Written on the prescription: “${esc(m.asWritten)}”</div>` : ''}
       <div class="chips" style="margin-top:10px"><button class="chip ${!m.asNeeded ? 'sel' : ''}" data-asneeded="${i}" data-v="0">At set times</button><button class="chip ${m.asNeeded ? 'sel' : ''}" data-asneeded="${i}" data-v="1">Only when needed</button></div>
       ${!m.asNeeded ? `<div class="chips ${flag(`med.${i}.freq`) ? 'uncertain-box' : ''}" data-freqbox="med.${i}.freq" style="margin-top:8px">${TIME_SLOTS.map((t) => `<button class="chip ${m.times.includes(t) ? 'sel' : ''}" data-mtime="${i}" data-slot="${t}">${t}</button>`).join('')}</div>` : ''}
@@ -718,7 +718,7 @@ function renderAssistant(id) {
   const num112 = core.EMERGENCY_NUMBER;
   const bubble = (b) => b.role === 'user'
     ? `<div class="card bubble-user">${esc(b.msg.text)}</div>`
-    : `<div class="card ${b.msg.kind === 'emergency' ? 'bubble-emergency' : b.msg.kind === 'summary' ? 'bubble-summary' : 'bubble-bot'}">${b.msg.kind === 'emergency' ? '<div class="name" style="color:var(--danger)">Get help now</div>' : ''}<div class="msg">${esc(b.msg.text).replace(/\n/g, '<br>')}</div>${b.msg.kind === 'emergency' ? `<a class="btn danger" href="tel:${num112}">Call ${num112}</a>` : ''}</div>`;
+    : `<div class="card ${b.msg.kind === 'emergency' ? 'bubble-emergency' : b.msg.kind === 'summary' ? 'bubble-summary' : 'bubble-bot'}">${b.msg.kind === 'emergency' ? '<div class="name" style="color:var(--danger)">Get help now</div>' : ''}<div class="msg">${esc(b.msg.text)}</div>${b.msg.kind === 'emergency' ? `<a class="btn danger" href="tel:${num112}">Call ${num112}</a>` : ''}</div>`;
   const last = [...t.bubbles].reverse().find((b) => b.role === 'assistant')?.msg;
   const quick = !t.state.done && last?.quickReplies?.length ? `<div class="chips" style="margin-top:8px">${last.quickReplies.map((q) => `<button class="chip" data-qr="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '';
   render(`
@@ -784,6 +784,7 @@ function screenMedicine(id, mid, editing = false) {
   if (!m || m.profileId !== id) return go(`#/profile/${id}/meds`);
   const st = medStatus(m);
   const blockers = core.scheduleBlockers(m);
+  const doseWarn = core.doseCheck(m.name, m.dose);
   const end = core.effectiveEndDate(m);
   const f = window.__medForm = editing ? (window.__medForm && window.__medForm.id === mid ? window.__medForm : { id: mid, name: m.name, dose: m.dose || '', times: [...m.times], durationDays: m.durationDays ? String(m.durationDays) : '', startDate: m.startDate || '', instructions: m.instructions || '', asNeeded: !!m.asNeeded }) : null;
   const custom = f ? f.times.filter((t) => !TIME_SLOTS.includes(t)) : [];
@@ -797,7 +798,8 @@ function screenMedicine(id, mid, editing = false) {
         <div class="caption">${m.startDate ? 'From ' + fmtDate(m.startDate) : 'Start date not set'}${end ? ' to ' + fmtDate(end) : ' · No end date written — reminders continue until you stop them'}</div>
         ${m.documentId && getDoc(m.documentId) ? `<a class="inline" href="#/profile/${id}/doc/${m.documentId}">View source document</a>` : ''}
       </div>
-      ${blockers.length && (st === 'active' || st === 'pending') ? `<div class="card" style="border-color:var(--warn)"><div class="name" style="color:var(--warn)">Reminders not set yet</div>${blockers.map((b) => `<div class="list-sub">• ${esc(b)}</div>`).join('')}<div class="caption" style="margin-top:6px">Check the prescription or ask your doctor or pharmacist, then add the missing details.</div>${!editing ? '<button class="btn primary" id="m-edit2">Add details</button>' : ''}</div>` : ''}
+      ${doseWarn ? `<div class="card" style="border-color:var(--warn);color:var(--warn)">⚠ ${esc(doseWarn)}</div>` : ''}
+      ${blockers.length && (st === 'active' || st === 'pending') ? `<div class="card"style="border-color:var(--warn)"><div class="name" style="color:var(--warn)">Reminders not set yet</div>${blockers.map((b) => `<div class="list-sub">• ${esc(b)}</div>`).join('')}<div class="caption" style="margin-top:6px">Check the prescription or ask your doctor or pharmacist, then add the missing details.</div>${!editing ? '<button class="btn primary" id="m-edit2">Add details</button>' : ''}</div>` : ''}
       ${editing ? `
       <div class="card" style="border-color:var(--accent)">
         <div class="caption">Enter the instructions exactly as your doctor prescribed.</div>
@@ -942,7 +944,7 @@ function renderAsk(id) {
   const chips = ['What medicines am I taking, and why?', 'When do I take them?', 'Next follow-up?', 'Last sugar test?'];
   const logHtml = chat.log.map((m) => m.role === 'user'
     ? `<div class="card" style="margin-left:40px;border-color:var(--accent)"><strong>You:</strong> ${esc(m.text)}</div>`
-    : `<div class="card ${m.emergency ? 'bubble-emergency' : ''}"><div class="msg">${esc(m.text).replace(/\n/g, '<br>')}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
+    : `<div class="card ${m.emergency ? 'bubble-emergency' : ''}"><div class="msg">${esc(m.text)}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
   const lastBot = [...chat.log].reverse().find((m) => m.role === 'bot');
   const addBtn = lastBot?.addMedicine && !lastBot.added ? `<button class="btn primary" id="ask-add">Add ${esc(lastBot.addMedicine.name)}${lastBot.addMedicine.dose ? ' ' + esc(lastBot.addMedicine.dose) : ''} to medicines</button>` : '';
   const followChips = addBtn + (lastBot?.suggestions?.length ? `<div class="chips" style="margin-top:8px">${lastBot.suggestions.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '');

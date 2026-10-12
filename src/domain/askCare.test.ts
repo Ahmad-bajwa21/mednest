@@ -19,9 +19,10 @@ const base = (over: Partial<AskData> = {}): AskData => ({
 describe('Ask', () => {
   it('"what medicine do i eat and why" lists AND explains', () => {
     const r = askCare('what medicine do i eat and why', base())!;
-    expect(r.answer).toMatch(/warfarin 5mg — 9:00 PM/);
-    expect(r.answer).toMatch(/prescribed by Dr\. Ali/);
-    expect(r.answer).toMatch(/does not say what it is for/);
+    expect(r.answer).toMatch(/Warfarin 5mg — a blood thinner/);
+    expect(r.answer).toMatch(/Take: 9:00 PM/);
+    expect(r.answer).toMatch(/Prescribed by Dr\. Ali on 13 Oct 2026/);
+    expect(r.answer).toMatch(/no reason written/);
     expect(r.answer).toMatch(/blood thinner/);
     expect(r.medicineId).toBe('m1');
   });
@@ -36,7 +37,7 @@ describe('Ask', () => {
 
   it('uses the diagnosis written on the prescription when there is one', () => {
     const d = base({ documents: [{ id: 'd1', type: 'Prescription', docDate: '2026-10-13', doctor: 'Dr. Ali', diagnosisWritten: 'Atrial fibrillation' }] });
-    expect(askCare('why do I take warfarin?', d)!.answer).toMatch(/lists the diagnosis: Atrial fibrillation/);
+    expect(askCare('why do I take warfarin?', d)!.answer).toMatch(/diagnosis written: Atrial fibrillation/);
   });
 
   it('answers when / how long / who', () => {
@@ -53,8 +54,9 @@ describe('Ask', () => {
 
   it('"I am also taking colchecine 5 mg" points to adding it, with general info (typo tolerated)', () => {
     const r = askCare('i am also taking colchecine 5 mg', base())!;
-    expect(r.answer).toMatch(/Colchicine is not in Tashfeen’s records/);
-    expect(r.answer).toMatch(/Enter manually/);
+    expect(r.answer).toMatch(/Colchicine isn’t in Tashfeen’s records/);
+    expect(r.answer).toMatch(/Tap “Add Colchicine 5 mg”/);
+    expect(r.answer).toMatch(/Please check the dose/);
     expect(r.answer).toMatch(/You also take warfarin/);
     expect(r.addMedicine).toEqual({ name: 'Colchicine', dose: '5 mg' });
     expect(r.answer).toMatch(/gout/);
@@ -69,7 +71,7 @@ describe('Ask', () => {
 
   it('"I started taking xyzmed" with an unknown medicine still points to adding it', () => {
     const r = askCare('I started taking xyzmed', base())!;
-    expect(r.answer).toMatch(/Xyzmed is not in Tashfeen’s records/);
+    expect(r.answer).toMatch(/Xyzmed isn’t in Tashfeen’s records/);
     expect(r.answer).not.toMatch(/commonly used/);
   });
 
@@ -95,5 +97,45 @@ describe('Ask', () => {
     expect(lookupMedicineInfo('Augmentin 625')?.what).toMatch(/antibiotic/);
     expect(lookupMedicineInfo('warfrin')?.what).toMatch(/blood thinner/);
     expect(lookupMedicineInfo('xyz')).toBeNull();
+  });
+});
+
+describe('Ask — the reported conversation (warfarin + colchicine)', () => {
+  const d = base({
+    medicines: [
+      { id: 'm1', documentId: 'd1', name: 'warfarin', dose: '5mg', times: ['Morning', 'Night'], startDate: '2026-10-13', durationDays: null, status: 'active', confirmedAt: 'x' },
+      { id: 'm2', documentId: null, name: 'Colchicine', dose: '5mg', times: [], startDate: '2026-10-13', durationDays: null, status: 'pending', confirmedAt: 'x' },
+    ],
+  });
+
+  it('"what are these medicines for collectively" covers BOTH medicines', () => {
+    const r = askCare('what are these medicines for collectively', d, { lastMedicineId: 'm2' })!;
+    expect(r.answer).toMatch(/2 medicines/);
+    expect(r.answer).toMatch(/Warfarin 5mg — a blood thinner/);
+    expect(r.answer).toMatch(/Colchicine 5mg — a medicine for gout/);
+  });
+
+  it('flags colchicine "5mg" as a likely typo (usual 0.5–1.2 mg)', () => {
+    const r = askCare('what are these medicines for', d)!;
+    expect(r.answer).toMatch(/Please check the dose: Colchicine is usually 0.5–1.2 mg per dose/);
+    expect(r.answer).not.toMatch(/Warfarin is usually/);
+  });
+
+  it('"which disease are these for" explains uses without inventing a diagnosis', () => {
+    const r = askCare('which disease are these for', d)!;
+    expect(r.answer).toMatch(/No diagnosis is written/);
+    expect(r.answer).toMatch(/only the doctor who prescribed them can/);
+    expect(r.answer).toMatch(/Warfarin 5mg — a blood thinner/);
+    expect(r.answer).toMatch(/Colchicine 5mg — a medicine for gout/);
+    expect(r.answer).toMatch(/don’t assume a diagnosis/);
+    expect(r.answer).toMatch(/Ask Dr\. Ali/);
+  });
+
+  it('asking "what is it for?" again gives a short answer, not the same paragraph', () => {
+    const first = askCare('what is warfarin for', d)!;
+    const again = askCare('what is it for?', d, { lastMedicineId: 'm1', explainedIds: first.explainedIds })!;
+    expect(again.answer).toMatch(/^In short:/);
+    expect(again.answer.length).toBeLessThan(first.answer.length);
+    expect(again.answer).not.toMatch(/INR/);
   });
 });

@@ -23,3 +23,4 @@ export {
 export { proposeFollowUp, parseFollowUp, appointmentAlarms } from '../domain/followUp';
 export { todaysDoses, pastDoses, upcomingAppointments, pendingConfirmations, historyEntries } from '../domain/care';
 export { askCare } from '../domain/askCare';
+export { doseCheck } from '../ai/medicineInfo';

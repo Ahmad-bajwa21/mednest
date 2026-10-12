@@ -110,3 +110,50 @@ export function lookupMedicineInfo(name: string | null | undefined): MedicineInf
   }
   return hits.size === 1 ? [...hits][0]! : null;
 }
+
+/**
+ * Usual amount PER DOSE for adults (generous ranges). Used only to ask the user to
+ * double-check an entry that looks like a typo (e.g. colchicine "5 mg" instead of
+ * "0.5 mg"). Never used to suggest a dose. CLINICAL REVIEW REQUIRED (draft).
+ */
+const USUAL_DOSE: Record<string, { min: number; max: number; unit: 'mg' | 'mcg' }> = {
+  colchicine: { min: 0.5, max: 1.2, unit: 'mg' },
+  warfarin: { min: 0.5, max: 15, unit: 'mg' },
+  paracetamol: { min: 100, max: 1000, unit: 'mg' },
+  ibuprofen: { min: 100, max: 800, unit: 'mg' },
+  metformin: { min: 250, max: 1000, unit: 'mg' },
+  glimepiride: { min: 0.5, max: 8, unit: 'mg' },
+  amlodipine: { min: 2.5, max: 10, unit: 'mg' },
+  losartan: { min: 12.5, max: 100, unit: 'mg' },
+  bisoprolol: { min: 1.25, max: 10, unit: 'mg' },
+  atorvastatin: { min: 10, max: 80, unit: 'mg' },
+  rosuvastatin: { min: 5, max: 40, unit: 'mg' },
+  omeprazole: { min: 10, max: 40, unit: 'mg' },
+  esomeprazole: { min: 20, max: 40, unit: 'mg' },
+  clopidogrel: { min: 75, max: 600, unit: 'mg' },
+  aspirin: { min: 75, max: 1000, unit: 'mg' },
+  levothyroxine: { min: 12.5, max: 300, unit: 'mcg' },
+  amoxicillin: { min: 125, max: 1000, unit: 'mg' },
+  'co-amoxiclav': { min: 375, max: 1000, unit: 'mg' },
+  azithromycin: { min: 250, max: 500, unit: 'mg' },
+  ciprofloxacin: { min: 250, max: 750, unit: 'mg' },
+  metronidazole: { min: 200, max: 800, unit: 'mg' },
+  prednisolone: { min: 1, max: 60, unit: 'mg' },
+  tramadol: { min: 50, max: 100, unit: 'mg' },
+};
+
+/** A gentle "please check" when a recorded dose is outside the usual range, else null. */
+export function doseCheck(name: string | null | undefined, dose: string | null | undefined): string | null {
+  const info = lookupMedicineInfo(name);
+  const m = dose?.toLowerCase().match(/(\d+(?:\.\d+)?)\s*(mg|mcg|µg|g)\b/);
+  if (!info || !m) return null;
+  const range = USUAL_DOSE[info.names[0]!];
+  if (!range) return null;
+  const v = parseFloat(m[1]!);
+  const unit = m[2] === 'µg' ? 'mcg' : m[2]!;
+  const inMg = unit === 'g' ? v * 1000 : unit === 'mcg' ? v / 1000 : v;
+  const value = range.unit === 'mcg' ? inMg * 1000 : inMg;
+  if (value >= range.min && value <= range.max) return null;
+  const generic = info.names[0]!.charAt(0).toUpperCase() + info.names[0]!.slice(1);
+  return `Please check the dose: ${generic} is usually ${range.min}–${range.max} ${range.unit} per dose, and “${dose}” is outside that. It may be a typo — compare it with the prescription or the box, and correct it in Meds if needed.`;
+}

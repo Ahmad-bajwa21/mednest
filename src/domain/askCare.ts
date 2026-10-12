@@ -8,7 +8,7 @@
 // It remembers the last medicine discussed so "what is it for?" works as a follow-up.
 import { ADVICE_REFUSAL, isAdviceSeeking } from '../ai/adviceFilter';
 import { detectRedFlags, EMERGENCY_MESSAGE, SELF_HARM_MESSAGE } from '../ai/triage/redFlags';
-import { lookupMedicineInfo, MEDICINE_INFO, type MedicineInfo } from '../ai/medicineInfo';
+import { doseCheck, lookupMedicineInfo, MEDICINE_INFO, type MedicineInfo } from '../ai/medicineInfo';
 import { deriveStatus, effectiveEndDate, formatTime, localDateIso, resolveTime, doseOccurrences, doseState, type SchedulableMedicine } from './schedule';
 
 export interface AskMedicine extends SchedulableMedicine {
@@ -58,6 +58,8 @@ export interface AskData {
 }
 export interface AskContext {
   lastMedicineId?: string | null;
+  /** Medicines already explained in this conversation (repeats get a short answer). */
+  explainedIds?: string[];
 }
 export interface AskReply {
   answer: string;
@@ -70,6 +72,8 @@ export interface AskReply {
   suggestions?: string[];
   /** The user mentioned a medicine that is not recorded: offer to add it (name/dose as told). */
   addMedicine?: { name: string; dose: string | null };
+  /** Updated list of explained medicines — pass back as context.explainedIds. */
+  explainedIds?: string[];
 }
 
 const GENERAL_NOTE = 'This is general information about the medicine; your doctor can tell you why it was prescribed for you.';
@@ -106,6 +110,9 @@ function targetMedicines(q: string, d: AskData, ctx: AskContext): { meds: AskMed
     const cur = named.filter((m) => currentMeds(d).includes(m));
     return { meds: cur.length ? cur : named.slice(-1), explicit: true };
   }
+  // "these / them / all / both / together" = all current medicines.
+  const cur0 = currentMeds(d);
+  if (cur0.length > 1 && /\b(these|those|them|they|all|both|together|collectively|each|my medicines|my meds|my tablets)\b/.test(lower)) return { meds: cur0, explicit: true };
   if (/\b(it|this|that|these|those|them|the medicine|this medicine|that medicine|the tablet|the pill)\b/.test(lower) && ctx.lastMedicineId) {
     const m = d.medicines.find((x) => x.id === ctx.lastMedicineId);
     if (m) return { meds: [m], explicit: true };
@@ -132,19 +139,61 @@ function generalText(name: string, info: MedicineInfo): string {
   return `${n} is ${info.what}, commonly used ${info.commonUse}.${info.note ? ' ' + info.note : ''}`;
 }
 
-function whyText(m: AskMedicine, d: AskData): string {
-  const doc = d.documents.find((x) => x.id === m.documentId);
-  const parts: string[] = [];
-  if (doc) {
-    parts.push(`${title(m)} was prescribed${doc.doctor ? ` by ${doc.doctor}` : ''} on ${fmt(doc.docDate)}.`);
-    parts.push(doc.diagnosisWritten ? `The prescription lists the diagnosis: ${doc.diagnosisWritten}.` : 'The prescription does not say what it is for.');
-  } else {
-    parts.push(`${title(m)} was added by you${m.startDate ? ` (from ${fmt(m.startDate)})` : ''}.`);
-  }
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** One medicine as a short block: what it is, where it came from, safety notes. */
+function medBlock(m: Pick<AskMedicine, 'name' | 'dose'> & Partial<AskMedicine>, d: AskData, brief: boolean, withTimes = false): string {
   const info = lookupMedicineInfo(m.name);
-  if (info) parts.push(generalText(m.name.split(/\s+/)[0]!, info), GENERAL_NOTE);
-  else parts.push(`I don’t have general information about ${m.name}. Ask ${doc?.doctor ?? 'your doctor'} or a pharmacist what it is for.`);
-  return parts.join(' ');
+  const doc = d.documents.find((x) => x.id === m.documentId);
+  const lines = [`• ${cap(`${m.name}${m.dose ? ' ' + m.dose : ''}`)} — ${info ? `${info.what}. Commonly used ${info.commonUse}.` : 'I don’t have general information about this medicine; a pharmacist can tell you what it is.'}`];
+  if (withTimes && m.times) lines.push(`   Take: ${timesText(m as AskMedicine)}${m.instructions ? `, ${m.instructions}` : ''}.`);
+  if (!brief && m.id) {
+    const origin = doc ? `Prescribed${doc.doctor ? ` by ${doc.doctor}` : ''} on ${fmt(doc.docDate)}` : `Added by you${m.startDate ? ` on ${fmt(m.startDate)}` : ''}`;
+    lines.push(`   ${origin} · ${doc?.diagnosisWritten ? `diagnosis written: ${doc.diagnosisWritten}` : 'no reason written'}.`);
+    if (info?.note) lines.push(`   ⚠ ${info.note}`);
+  }
+  const check = doseCheck(m.name, m.dose);
+  if (check) lines.push(`   ⚠ ${check}`);
+  return lines.join('\n');
+}
+
+/** Doctors who prescribed these medicines (for "ask Dr. X"). */
+function prescribers(meds: AskMedicine[], d: AskData): string {
+  const names = uniq(meds.map((m) => d.documents.find((x) => x.id === m.documentId)?.doctor).filter((x): x is string => !!x));
+  return names.length ? names.join(' or ') : 'your doctor';
+}
+
+/** "What is it for?" for one or more medicines. Repeats are answered briefly. */
+function whyAnswer(meds: AskMedicine[], d: AskData, ctx: AskContext, withTimes = false): { answer: string; explained: string[] } {
+  const seen = new Set(ctx.explainedIds ?? []);
+  const brief = !withTimes && meds.every((m) => seen.has(m.id));
+  const many = meds.length > 1;
+  const parts: string[] = [];
+  if (withTimes) parts.push(`${cap(d.profileName)} takes ${meds.length} medicine${many ? 's' : ''}:`);
+  else if (many) parts.push(`What ${d.profileName}’s ${meds.length} medicines are commonly used for:`);
+  else if (brief) parts.push('In short:');
+  parts.push(meds.map((m) => medBlock(m, d, brief, withTimes)).join('\n'));
+  const written = meds.some((m) => d.documents.find((x) => x.id === m.documentId)?.diagnosisWritten);
+  if (!brief && !written) parts.push(`${many ? 'The records don’t say why these were' : 'The record doesn’t say why it was'} prescribed for ${d.profileName}. Ask ${prescribers(meds, d)}: “What ${many ? 'is each of these medicines' : 'is this medicine'} for in my case?”`);
+  parts.push('General information, not a diagnosis.');
+  return { answer: parts.join('\n\n'), explained: uniq([...seen, ...meds.map((m) => m.id)]) };
+}
+
+/** "Which disease are these for?" — written diagnoses first, never inferred from medicines. */
+function diseaseAnswer(meds: AskMedicine[], d: AskData): string {
+  const dx = d.documents.filter((x) => x.diagnosisWritten);
+  const parts: string[] = [];
+  if (dx.length) {
+    parts.push('Diagnoses written by doctors on the documents:\n' + dx.map((x) => `• ${x.diagnosisWritten} — ${x.doctor ?? 'doctor'}, ${fmt(x.docDate)}`).join('\n'));
+  } else {
+    parts.push(`No diagnosis is written on ${d.profileName}’s documents, so I can’t tell which condition ${meds.length > 1 ? 'these medicines are' : 'this medicine is'} for — only the doctor who prescribed ${meds.length > 1 ? 'them' : 'it'} can.`);
+  }
+  if (meds.length) {
+    parts.push('What they are commonly used for:\n' + meds.map((m) => medBlock(m, d, true)).join('\n'));
+    parts.push('The same medicine can be used for different conditions, so please don’t assume a diagnosis from this list.');
+    parts.push(`Ask ${prescribers(meds, d)}: “Which condition is each of my medicines for?” If a diagnosis is written on a prescription, add it in the document so it shows here.`);
+  }
+  return parts.join('\n\n');
 }
 
 function howText(m: AskMedicine): string {
@@ -184,6 +233,7 @@ export function askCare(question: string, d: AskData, ctx: AskContext = {}): Ask
   const asksHow = /\b(when|what time|how (do|should|often|many|much)|times? a day|before or after|with food|dose|dosage|kab)\b/.test(lower);
   const asksHowLong = /\b(how long|until when|till when|end date|when (does|do|will) .* (end|finish|stop)|how many days|kitne din)\b/.test(lower);
   const asksWho = /\b(who|which doctor|prescribed by|kis doctor)\b/.test(lower);
+  const asksDisease = /\b(disease|diseases|condition|conditions|illness|illnesses|problem|problems|diagnos\w*|bimari|beemari)\b/.test(lower);
   const asksList = /\b(what|which|current|my|all|list)\b.*\b(medicine|medicines|meds|tablets|pills|medication|dawai|dawa)\b|\btaking now\b|\bdo i (eat|take)\b/.test(lower);
 
 
@@ -196,7 +246,11 @@ export function askCare(question: string, d: AskData, ctx: AskContext = {}): Ask
       return { answer: doc ? `${title(m0)} was prescribed${doc.doctor ? ` by ${doc.doctor}` : ' (no doctor name recorded)'} on ${fmt(doc.docDate)}.` : `${title(m0)} was entered by you; no prescription is linked.`, sources: src([m0]), medicineId: m0.id };
     }
     if (asksHow && !asksWhy) return { answer: meds.map(howText).join(' '), sources: src(meds), medicineId: m0.id };
-    if (asksWhy || /\bwhat (is|are)\b|\btell me about\b|\babout\b/.test(lower)) return { answer: meds.map((m) => whyText(m, d)).join('\n\n'), sources: src(meds), medicineId: m0.id, suggestions: ['When do I take it?', 'How long do I take it?'] };
+    if (asksDisease) return { answer: diseaseAnswer(meds, d), sources: src(meds), medicineId: meds.length === 1 ? m0.id : null, explainedIds: uniq([...(ctx.explainedIds ?? []), ...meds.map((m) => m.id)]), suggestions: ['When do I take them?', 'Next follow-up?'] };
+    if (asksWhy || /\bwhat (is|are)\b|\btell me about\b|\babout\b/.test(lower)) {
+      const w = whyAnswer(meds, d, ctx);
+      return { answer: w.answer, sources: src(meds), medicineId: meds.length === 1 ? m0.id : null, explainedIds: w.explained, suggestions: meds.length > 1 ? ['Which disease are these for?', 'When do I take them?'] : ['When do I take it?', 'How long do I take it?'] };
+    }
     return null;
   };
 
@@ -223,14 +277,21 @@ export function askCare(question: string, d: AskData, ctx: AskContext = {}): Ask
     if (inRecord && currentMeds(d).includes(inRecord)) {
       return { answer: `Yes — ${title(inRecord)} is in ${d.profileName}’s records: ${timesText(inRecord)}.`, sources: src([inRecord]), medicineId: inRecord.id, suggestions: ['What is it for?', 'When do I take it?'] };
     }
-    const cap = name.charAt(0).toUpperCase() + name.slice(1);
-    const add = `${cap} is not in ${d.profileName}’s records yet. Tap “Add ${cap}${dose ? ' ' + dose : ''}” below to add it (or ＋ → “Enter manually”), then set the times your doctor gave — I’ll answer questions about it and remind you of doses.`;
+    const label = cap(name);
+    const parts = [`${label} isn’t in ${d.profileName}’s records yet. Tap “Add ${label}${dose ? ' ' + dose : ''}” below, then set the times your doctor gave — after that I can answer questions about it and remind you of doses.`];
+    if (general || dose) {
+      // Same block as other medicines: what it is, safety note, dose check.
+      const block = medBlock({ name: label, dose }, d, true).split('\n');
+      if (general?.note) block.splice(1, 0, `   ⚠ ${general.note}`);
+      parts.push(block.join('\n'));
+    }
     const others = currentMeds(d).map((m) => m.name);
-    const tellDoctor = others.length ? ` You also take ${others.join(', ')}. Make sure your doctor and pharmacist know about every medicine you take.` : '';
+    if (others.length) parts.push(`You also take ${others.join(', ')}. Make sure your doctor and pharmacist know about every medicine you take.`);
+    if (general) parts.push('General information, not a diagnosis.');
     return {
-      answer: (general ? `${add} ${generalText(name, general)} ${GENERAL_NOTE}` : add) + tellDoctor,
+      answer: parts.join('\n\n'),
       sources: [],
-      addMedicine: { name: cap, dose },
+      addMedicine: { name: label, dose },
       suggestions: ['What medicines am I taking?'],
     };
   }
@@ -248,8 +309,12 @@ export function askCare(question: string, d: AskData, ctx: AskContext = {}): Ask
     const cur = currentMeds(d);
     if (!cur.length) return { answer: `No current medicines are recorded for ${d.profileName}. Add a prescription with ＋ and I can answer questions about it.`, sources: [], suggestions: SUGGEST };
     const lines = cur.map((m) => `• ${title(m)} — ${timesText(m)}${m.instructions ? ', ' + m.instructions : ''}`);
-    let answer = `Current medicines:\n${lines.join('\n')}`;
-    if (asksWhy) answer += '\n\n' + cur.map((m) => whyText(m, d)).join('\n\n');
+    const answer = `Current medicines:\n${lines.join('\n')}`;
+    if (asksWhy) {
+      // One block per medicine: what it is, when to take it, where it came from.
+      const w = whyAnswer(cur, d, ctx, true);
+      return { answer: w.answer, sources: src(cur), medicineId: cur.length === 1 ? cur[0]!.id : null, explainedIds: w.explained, suggestions: cur.length > 1 ? ['Which disease are these for?', 'How long do I take them?'] : ['How long do I take it?', 'Next follow-up?'] };
+    }
     return { answer, sources: src(cur), medicineId: cur.length === 1 ? cur[0]!.id : null, suggestions: ['What is it for?', 'When do I take it?', 'How long do I take it?'] };
   }
 
