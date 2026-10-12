@@ -46,5 +46,13 @@ t('last sugar test → HbA1c 7.2', /HbA1c was 7\.2/.test(r5.answer) && /2026/.te
 const r6 = askRecords(PID, 'What about my cholesterol xyz?');
 t('unknown query → not found or refusal handled', !!r6.answer);
 
+// 4. The reported conversation: "...and why", then "what is this medicine for".
+const r7 = askRecords(PID, 'what medicine do i eat and why');
+t('"…and why" explains the medicine', /Metformin/.test(r7.answer) && /diabetes medicine/.test(r7.answer) && /Dr\. Ali/.test(r7.answer));
+const r8 = askRecords(PID, 'what is this medicine for', { lastMedicineId: r7.medicineId });
+t('"this medicine" follow-up answered', /lower blood sugar/.test(r8.answer) && !/couldn.t find/.test(r8.answer));
+const r9 = askRecords(PID, 'what is panadol for');
+t('general info for a medicine not prescribed', /pain reliever/.test(r9.answer));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

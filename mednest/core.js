@@ -1160,10 +1160,10 @@ function numberAppears(value, haystack) {
   return nums.every((n) => new RegExp(`(^|[^\\d.])${n.replace(".", "\\.")}([^\\d]|$)`).test(haystack));
 }
 function textAppears(value, haystack) {
-  const words = normalise2(value).split(" ").filter((w) => w.length >= 3 && !/^\d/.test(w));
-  if (words.length === 0)
+  const words2 = normalise2(value).split(" ").filter((w) => w.length >= 3 && !/^\d/.test(w));
+  if (words2.length === 0)
     return true;
-  return words.every((w) => haystack.includes(w));
+  return words2.every((w) => haystack.includes(w));
 }
 function valueIsGrounded(value, ocrText) {
   if (value == null || value === "")
@@ -1597,7 +1597,7 @@ function appointmentAlarms(a, now, opts = {}) {
     return [];
   const who = a.doctor ? ` with ${a.doctor}` : "";
   const why = a.reason ? ` \u2014 ${a.reason}` : "";
-  const title = opts.profileName ? `Follow-up \xB7 ${opts.profileName}` : "Doctor follow-up";
+  const title2 = opts.profileName ? `Follow-up \xB7 ${opts.profileName}` : "Doctor follow-up";
   const before = new Date(day);
   before.setDate(before.getDate() - 1);
   before.setHours(18, 0, 0, 0);
@@ -1610,8 +1610,8 @@ function appointmentAlarms(a, now, opts = {}) {
   }
   const lock = opts.hideOnLockScreen ? "MedNest reminder" : void 0;
   return [
-    { id: `appt:${a.id}:before`, at: before.getTime(), title, body: `Tomorrow: follow-up${who}${why}.`, lockScreenBody: lock, category: "appointment", data: { kind: "appointment", appointmentId: a.id } },
-    { id: `appt:${a.id}:day`, at: sameDay.getTime(), title, body: `Today${a.time ? ` at ${a.time}` : ""}: follow-up${who}${why}.`, lockScreenBody: lock, category: "appointment", data: { kind: "appointment", appointmentId: a.id } }
+    { id: `appt:${a.id}:before`, at: before.getTime(), title: title2, body: `Tomorrow: follow-up${who}${why}.`, lockScreenBody: lock, category: "appointment", data: { kind: "appointment", appointmentId: a.id } },
+    { id: `appt:${a.id}:day`, at: sameDay.getTime(), title: title2, body: `Today${a.time ? ` at ${a.time}` : ""}: follow-up${who}${why}.`, lockScreenBody: lock, category: "appointment", data: { kind: "appointment", appointmentId: a.id } }
   ].filter((x) => x.at > now.getTime());
 }
 
@@ -1840,6 +1840,336 @@ function safeJson(s) {
     return null;
   }
 }
+
+// src/ai/adviceFilter.ts
+var ADVICE_REFUSAL = "I can't advise on that. I can show you what your records say, and you can discuss it with your doctor.";
+var ADVICE_PATTERNS = [
+  /\bshould i\b/i,
+  /\bdo i have\b/i,
+  /\bis it (safe|ok|okay|fine|normal|dangerous|bad)\b/i,
+  /\bcan i (stop|start|take|increase|decrease|reduce|double|skip|change)\b/i,
+  /\bwhat('?s| is) wrong with\b/i,
+  /\b(diagnos|prognos)/i,
+  /\b(cure|treat(ment)?|remedy)\b/i,
+  /\bwhich medicine should\b/i,
+  /\bhow much should i (take|have)\b/i,
+  /\bwhat should i (do|take|eat|avoid)\b/i,
+  /\bdo i need (to see|a doctor|medicine|surgery)\b/i
+];
+function isAdviceSeeking(question) {
+  const q = question.trim();
+  if (!q)
+    return false;
+  return ADVICE_PATTERNS.some((re) => re.test(q));
+}
+
+// src/ai/medicineInfo.ts
+var MEDICINE_INFO = [
+  { names: ["warfarin", "coumadin", "marevan"], what: "a blood thinner (anticoagulant)", commonUse: "to prevent or treat blood clots \u2014 for example with some heart rhythm problems, after heart valve replacement, or for clots in the legs or lungs", note: "Warfarin needs regular INR blood tests. Many foods and medicines change how it works, so check with your doctor or pharmacist before starting anything new, and seek help quickly for unusual bleeding or bruising." },
+  { names: ["rivaroxaban", "xarelto"], what: "a blood thinner (anticoagulant)", commonUse: "to prevent or treat blood clots, for example with some heart rhythm problems or clots in the legs or lungs", note: "Seek help quickly for unusual bleeding. Tell any doctor or dentist that you take it." },
+  { names: ["apixaban", "eliquis"], what: "a blood thinner (anticoagulant)", commonUse: "to prevent or treat blood clots, for example with some heart rhythm problems or clots in the legs or lungs", note: "Seek help quickly for unusual bleeding. Tell any doctor or dentist that you take it." },
+  { names: ["clopidogrel", "plavix", "lowplat"], what: "an antiplatelet medicine", commonUse: "to help prevent heart attacks and strokes, often after a heart stent or a previous heart attack or stroke", note: "Do not stop it without your doctor\u2019s advice, especially after a stent." },
+  { names: ["aspirin", "disprin", "loprin", "ascard"], what: "a pain reliever that, in low doses, is an antiplatelet medicine", commonUse: "in low doses, to help prevent heart attacks and strokes; in higher doses, for pain and fever" },
+  { names: ["paracetamol", "acetaminophen", "panadol", "calpol", "tylenol"], what: "a pain reliever and fever reducer", commonUse: "for mild to moderate pain and for fever", note: "Taking more than the prescribed amount can seriously harm the liver. Many cold and flu products also contain paracetamol." },
+  { names: ["ibuprofen", "brufen", "advil"], what: "an anti-inflammatory pain reliever (NSAID)", commonUse: "for pain, swelling and fever" },
+  { names: ["diclofenac", "voltaren", "dicloran", "arthrotec"], what: "an anti-inflammatory pain reliever (NSAID)", commonUse: "for pain and swelling, such as joint or muscle pain" },
+  { names: ["naproxen", "naprosyn"], what: "an anti-inflammatory pain reliever (NSAID)", commonUse: "for pain and swelling, such as joint pain" },
+  { names: ["tramadol", "tramal"], what: "a strong pain reliever (opioid)", commonUse: "for moderate to severe pain", note: "It can cause drowsiness and dependence. Do not drive if it makes you sleepy." },
+  { names: ["omeprazole", "risek", "losec", "omezol"], what: "a stomach acid reducer (proton pump inhibitor)", commonUse: "for heartburn, acid reflux, stomach ulcers and gastritis, and to protect the stomach" },
+  { names: ["esomeprazole", "nexium", "esso"], what: "a stomach acid reducer (proton pump inhibitor)", commonUse: "for heartburn, acid reflux, stomach ulcers and gastritis" },
+  { names: ["pantoprazole", "pantra", "protonix"], what: "a stomach acid reducer (proton pump inhibitor)", commonUse: "for heartburn, acid reflux, stomach ulcers and gastritis" },
+  { names: ["famotidine", "famot"], what: "a stomach acid reducer (H2 blocker)", commonUse: "for heartburn, acid reflux and stomach ulcers" },
+  { names: ["domperidone", "motilium"], what: "an anti-sickness medicine", commonUse: "for nausea, vomiting and bloating" },
+  { names: ["ondansetron", "zofran", "onset"], what: "an anti-sickness medicine", commonUse: "to prevent or treat nausea and vomiting" },
+  { names: ["metoclopramide", "maxolon"], what: "an anti-sickness medicine", commonUse: "for nausea and vomiting" },
+  { names: ["loperamide", "imodium"], what: "an anti-diarrhoea medicine", commonUse: "to slow down diarrhoea" },
+  { names: ["ors", "oral rehydration salts", "pedialyte"], what: "oral rehydration salts", commonUse: "to replace water and salts lost through diarrhoea or vomiting" },
+  { names: ["metformin", "glucophage", "neodipar"], what: "a diabetes medicine", commonUse: "to lower blood sugar in type 2 diabetes" },
+  { names: ["glimepiride", "amaryl", "getryl"], what: "a diabetes medicine (sulfonylurea)", commonUse: "to lower blood sugar in type 2 diabetes", note: "It can cause low blood sugar (shakiness, sweating, confusion). Eat regular meals." },
+  { names: ["gliclazide", "diamicron"], what: "a diabetes medicine (sulfonylurea)", commonUse: "to lower blood sugar in type 2 diabetes", note: "It can cause low blood sugar (shakiness, sweating, confusion). Eat regular meals." },
+  { names: ["sitagliptin", "januvia", "janumet"], what: "a diabetes medicine", commonUse: "to lower blood sugar in type 2 diabetes" },
+  { names: ["empagliflozin", "jardiance"], what: "a diabetes medicine (SGLT2 inhibitor)", commonUse: "to lower blood sugar in type 2 diabetes; also used for some heart and kidney conditions" },
+  { names: ["insulin", "mixtard", "lantus", "humulin", "novorapid"], what: "insulin", commonUse: "to control blood sugar in diabetes", note: "It can cause low blood sugar (shakiness, sweating, confusion). Know how to treat a low." },
+  { names: ["amlodipine", "norvasc", "amlo"], what: "a blood pressure medicine (calcium channel blocker)", commonUse: "for high blood pressure and some types of chest pain (angina)" },
+  { names: ["losartan", "cozaar", "eziday"], what: "a blood pressure medicine (ARB)", commonUse: "for high blood pressure, and to protect the kidneys in diabetes" },
+  { names: ["valsartan", "diovan"], what: "a blood pressure medicine (ARB)", commonUse: "for high blood pressure and heart failure" },
+  { names: ["lisinopril", "zestril"], what: "a blood pressure medicine (ACE inhibitor)", commonUse: "for high blood pressure and heart failure" },
+  { names: ["captopril", "capoten"], what: "a blood pressure medicine (ACE inhibitor)", commonUse: "for high blood pressure and heart failure" },
+  { names: ["bisoprolol", "concor"], what: "a beta blocker", commonUse: "for high blood pressure, heart failure and some heart rhythm problems", note: "Do not stop it suddenly without your doctor\u2019s advice." },
+  { names: ["atenolol", "tenormin"], what: "a beta blocker", commonUse: "for high blood pressure and some heart rhythm problems", note: "Do not stop it suddenly without your doctor\u2019s advice." },
+  { names: ["propranolol", "inderal"], what: "a beta blocker", commonUse: "for high blood pressure, fast heartbeat, migraine prevention and anxiety symptoms", note: "Do not stop it suddenly without your doctor\u2019s advice." },
+  { names: ["furosemide", "lasix"], what: "a water tablet (diuretic)", commonUse: "to remove extra fluid, for example in heart failure, and for high blood pressure" },
+  { names: ["hydrochlorothiazide", "hctz"], what: "a water tablet (diuretic)", commonUse: "for high blood pressure and fluid build-up" },
+  { names: ["spironolactone", "aldactone"], what: "a water tablet (diuretic)", commonUse: "for heart failure, fluid build-up and some hormone conditions" },
+  { names: ["atorvastatin", "lipitor", "atorva"], what: "a cholesterol-lowering medicine (statin)", commonUse: "to lower cholesterol and reduce the risk of heart attack and stroke" },
+  { names: ["rosuvastatin", "crestor", "rovista"], what: "a cholesterol-lowering medicine (statin)", commonUse: "to lower cholesterol and reduce the risk of heart attack and stroke" },
+  { names: ["simvastatin", "zocor"], what: "a cholesterol-lowering medicine (statin)", commonUse: "to lower cholesterol and reduce the risk of heart attack and stroke" },
+  { names: ["levothyroxine", "thyroxine", "euthyrox", "synthroid"], what: "a thyroid hormone", commonUse: "to replace thyroid hormone when the thyroid is underactive (hypothyroidism)", note: "It is usually taken on an empty stomach, as your doctor or pharmacist explains." },
+  { names: ["amoxicillin", "amoxil"], what: "an antibiotic (penicillin type)", commonUse: "to treat bacterial infections such as chest, ear, throat and urine infections", note: "Antibiotics work only against bacteria. Finish the course as prescribed. Tell your doctor if you are allergic to penicillin." },
+  { names: ["co-amoxiclav", "amoxicillin clavulanate", "augmentin", "amclav"], what: "an antibiotic (penicillin type)", commonUse: "to treat bacterial infections such as chest, sinus, skin and urine infections", note: "Finish the course as prescribed. Tell your doctor if you are allergic to penicillin." },
+  { names: ["azithromycin", "azomax", "zithromax"], what: "an antibiotic (macrolide)", commonUse: "to treat bacterial infections such as chest, throat and some skin infections, and typhoid", note: "Finish the course as prescribed." },
+  { names: ["clarithromycin", "klaricid"], what: "an antibiotic (macrolide)", commonUse: "to treat bacterial infections, and as part of treatment for the stomach bacterium H. pylori", note: "Finish the course as prescribed." },
+  { names: ["ciprofloxacin", "ciproxin", "cipro"], what: "an antibiotic (quinolone)", commonUse: "to treat bacterial infections such as urine and gut infections", note: "Finish the course as prescribed." },
+  { names: ["levofloxacin", "leflox", "levaquin"], what: "an antibiotic (quinolone)", commonUse: "to treat bacterial infections such as chest and urine infections", note: "Finish the course as prescribed." },
+  { names: ["cefixime", "cefspan", "suprax"], what: "an antibiotic (cephalosporin)", commonUse: "to treat bacterial infections such as throat, urine infections and typhoid", note: "Finish the course as prescribed." },
+  { names: ["ceftriaxone", "rocephin"], what: "an injectable antibiotic (cephalosporin)", commonUse: "to treat more serious bacterial infections" },
+  { names: ["metronidazole", "flagyl"], what: "an antibiotic and anti-parasite medicine", commonUse: "to treat some gut infections (such as amoebic dysentery), dental and gynaecological infections", note: "Avoid alcohol while taking it and for a couple of days after." },
+  { names: ["cetirizine", "zyrtec", "rigix"], what: "an antihistamine (anti-allergy)", commonUse: "for allergies such as hay fever, itchy skin and hives" },
+  { names: ["loratadine", "claritin"], what: "an antihistamine (anti-allergy)", commonUse: "for allergies such as hay fever and hives" },
+  { names: ["fexofenadine", "telfast", "fexet"], what: "an antihistamine (anti-allergy)", commonUse: "for allergies such as hay fever and hives" },
+  { names: ["chlorpheniramine", "piriton", "avil"], what: "an antihistamine (anti-allergy)", commonUse: "for allergies and itching", note: "It can cause drowsiness." },
+  { names: ["montelukast", "singulair", "myteka"], what: "an asthma and allergy medicine", commonUse: "to help prevent asthma symptoms and for allergies" },
+  { names: ["salbutamol", "ventolin", "albuterol"], what: "a reliever inhaler (bronchodilator)", commonUse: "to quickly open the airways during asthma or wheezing", note: "If you need it much more often than usual, see a doctor." },
+  { names: ["prednisolone", "deltacortril"], what: "a steroid medicine", commonUse: "to reduce inflammation, for example in asthma attacks, allergies and some joint or skin conditions", note: "Do not stop a longer course suddenly without your doctor\u2019s advice." },
+  { names: ["dexamethasone", "decadron"], what: "a steroid medicine", commonUse: "to reduce inflammation and swelling in many conditions" },
+  { names: ["sertraline", "zoloft", "serlift"], what: "an antidepressant (SSRI)", commonUse: "for depression, anxiety and some related conditions", note: "It can take a few weeks to work. Do not stop suddenly without your doctor\u2019s advice." },
+  { names: ["escitalopram", "cipralex", "citanew"], what: "an antidepressant (SSRI)", commonUse: "for depression and anxiety", note: "It can take a few weeks to work. Do not stop suddenly without your doctor\u2019s advice." },
+  { names: ["fluoxetine", "prozac"], what: "an antidepressant (SSRI)", commonUse: "for depression and some related conditions", note: "Do not stop suddenly without your doctor\u2019s advice." },
+  { names: ["alprazolam", "xanax"], what: "a sedative (benzodiazepine)", commonUse: "for short-term relief of severe anxiety", note: "It can cause drowsiness and dependence. Do not drive if it makes you sleepy." },
+  { names: ["bromazepam", "lexotanil"], what: "a sedative (benzodiazepine)", commonUse: "for short-term relief of severe anxiety", note: "It can cause drowsiness and dependence." },
+  { names: ["gabapentin", "neurontin", "gabica"], what: "a nerve pain and anti-seizure medicine", commonUse: "for nerve pain and some types of seizures", note: "It can cause drowsiness or dizziness." },
+  { names: ["pregabalin", "lyrica"], what: "a nerve pain medicine", commonUse: "for nerve pain, and sometimes anxiety or seizures", note: "It can cause drowsiness or dizziness." },
+  { names: ["vitamin d", "cholecalciferol", "sunny d", "indrop d"], what: "a vitamin supplement", commonUse: "to treat or prevent low vitamin D and support bone health" },
+  { names: ["calcium", "cacit", "os-cal"], what: "a mineral supplement", commonUse: "to support bone health or treat low calcium" },
+  { names: ["ferrous sulfate", "iron", "fefol", "sangobion"], what: "an iron supplement", commonUse: "to treat or prevent iron-deficiency anaemia" },
+  { names: ["folic acid", "folate"], what: "a vitamin (B9) supplement", commonUse: "before and during early pregnancy, and for some types of anaemia" }
+];
+function words(s) {
+  return s.toLowerCase().replace(/[^a-z0-9 -]/g, " ").split(/\s+/).filter(Boolean);
+}
+function lookupMedicineInfo(name) {
+  if (!name)
+    return null;
+  const text = ` ${words(name).join(" ")} `;
+  for (const info of MEDICINE_INFO)
+    if (info.names.some((n) => text.includes(` ${n} `)))
+      return info;
+  const hits = /* @__PURE__ */ new Set();
+  for (const w of words(name)) {
+    if (w.length < 6)
+      continue;
+    for (const info of MEDICINE_INFO)
+      if (info.names.some((n) => !n.includes(" ") && n.length >= 6 && levenshtein(w, n) <= 1))
+        hits.add(info);
+  }
+  return hits.size === 1 ? [...hits][0] : null;
+}
+
+// src/domain/askCare.ts
+var GENERAL_NOTE = "This is general information about the medicine; your doctor can tell you why it was prescribed for you.";
+var fmt = (iso2) => {
+  if (!iso2)
+    return "an unknown date";
+  const d = new Date(iso2.length === 10 ? iso2 + "T00:00:00" : iso2);
+  return isNaN(d.getTime()) ? iso2 : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+};
+var num = (v) => {
+  const n = parseFloat(String(v));
+  return Number.isFinite(n) ? n : null;
+};
+var title = (m) => `${m.name}${m.dose ? " " + m.dose : ""}`;
+var timesText = (m) => m.asNeeded ? "only when needed" : m.times.length ? m.times.map((t) => {
+  const r = resolveTime(t);
+  return r ? formatTime(r) : t;
+}).join(", ") : "no times recorded";
+var uniq = (xs) => [...new Set(xs)];
+function currentMeds(d) {
+  const today = localDateIso(d.now);
+  return d.medicines.filter((m) => ["active", "pending", "paused"].includes(deriveStatus(m, today)));
+}
+function targetMedicines(q, d, ctx) {
+  const lower = ` ${q.toLowerCase()} `;
+  const named = d.medicines.filter((m) => {
+    const first = m.name.toLowerCase().split(/\s+/)[0] ?? "";
+    if (first.length >= 3 && lower.includes(first))
+      return true;
+    const info = lookupMedicineInfo(m.name);
+    return !!info && info.names.some((n) => lower.includes(` ${n} `) || lower.includes(` ${n}?`));
+  });
+  if (named.length) {
+    const cur2 = named.filter((m) => currentMeds(d).includes(m));
+    return { meds: cur2.length ? cur2 : named.slice(-1), explicit: true };
+  }
+  if (/\b(it|this|that|these|those|them|the medicine|this medicine|that medicine|the tablet|the pill)\b/.test(lower) && ctx.lastMedicineId) {
+    const m = d.medicines.find((x) => x.id === ctx.lastMedicineId);
+    if (m)
+      return { meds: [m], explicit: true };
+  }
+  const cur = currentMeds(d);
+  if (cur.length === 1 && /\b(it|this|that|medicine|medication|tablet|pill|dose|take|taking|eat|dawai)\b/.test(lower))
+    return { meds: cur, explicit: false };
+  return { meds: [], explicit: false };
+}
+function generalMedicine(q) {
+  const lower = ` ${q.toLowerCase().replace(/[^a-z0-9 -]/g, " ")} `;
+  for (const info of MEDICINE_INFO)
+    if (info.names.some((n) => lower.includes(` ${n} `)))
+      return info;
+  for (const w of q.toLowerCase().split(/[^a-z0-9-]+/)) {
+    const hit = w.length >= 5 ? lookupMedicineInfo(w) : null;
+    if (hit)
+      return hit;
+  }
+  return null;
+}
+function generalText(name, info) {
+  const n = name.charAt(0).toUpperCase() + name.slice(1);
+  return `${n} is ${info.what}, commonly used ${info.commonUse}.${info.note ? " " + info.note : ""}`;
+}
+function whyText(m, d) {
+  const doc = d.documents.find((x) => x.id === m.documentId);
+  const parts = [];
+  if (doc) {
+    parts.push(`${title(m)} was prescribed${doc.doctor ? ` by ${doc.doctor}` : ""} on ${fmt(doc.docDate)}.`);
+    parts.push(doc.diagnosisWritten ? `The prescription lists the diagnosis: ${doc.diagnosisWritten}.` : "The prescription does not say what it is for.");
+  } else {
+    parts.push(`${title(m)} was added by you${m.startDate ? ` (from ${fmt(m.startDate)})` : ""}.`);
+  }
+  const info = lookupMedicineInfo(m.name);
+  if (info)
+    parts.push(generalText(m.name.split(/\s+/)[0], info), GENERAL_NOTE);
+  else
+    parts.push(`I don\u2019t have general information about ${m.name}. Ask ${doc?.doctor ?? "your doctor"} or a pharmacist what it is for.`);
+  return parts.join(" ");
+}
+function howText(m) {
+  const parts = [`${title(m)}: ${timesText(m)}${m.instructions ? `, ${m.instructions}` : ""}.`];
+  if (!m.dose)
+    parts.push("The dose is not recorded \u2014 check the prescription.");
+  return parts.join(" ") + " This is what the prescription says; follow your doctor\u2019s instructions.";
+}
+function durationText(m, d) {
+  const end = effectiveEndDate(m);
+  const today = localDateIso(d.now);
+  if (m.status === "discontinued")
+    return `${title(m)} was stopped${m.endDate ? ` on ${fmt(m.endDate)}` : ""}.`;
+  if (end)
+    return end < today ? `${title(m)} was for ${m.durationDays ?? "a set number of"} days and ended on ${fmt(end)}.` : `${title(m)} is for ${m.durationDays ? m.durationDays + " days" : "a set period"}${m.startDate ? ` from ${fmt(m.startDate)}` : ""}, until ${fmt(end)}.`;
+  return `No duration is written for ${title(m)}, so there is no end date. Ask your doctor how long to take it.`;
+}
+var SUGGEST = ["What medicines am I taking?", "What is it for?", "When do I take it?", "Next follow-up?", "Last sugar test?", "Did I take my medicines today?"];
+function askCare(question, d, ctx = {}) {
+  const q = question.trim();
+  if (!q)
+    return null;
+  const lower = q.toLowerCase();
+  const flags = detectRedFlags(q);
+  if (flags[0]?.level === "emergency") {
+    return { answer: flags.some((f) => f.id === "self_harm") ? SELF_HARM_MESSAGE : EMERGENCY_MESSAGE, sources: [], emergency: true };
+  }
+  if (isAdviceSeeking(q)) {
+    return { answer: `${ADVICE_REFUSAL} If you feel unwell, use \u201CCheck a symptom\u201D for guided questions and next steps.`, sources: [], refusal: true };
+  }
+  const { meds, explicit } = targetMedicines(q, d, ctx);
+  const m0 = meds[0];
+  const src = (ms) => uniq(ms.map((m) => m.documentId).filter((x) => !!x));
+  const asksWhy = /\b(why|what (is|are|was|were) (it|this|that|they|these|those|the \w+|\w+) for|what('?s| is| are)? .* for\b|used for|purpose|for what|kis liye|kyun)\b/.test(lower);
+  const asksHow = /\b(when|what time|how (do|should|often|many|much)|times? a day|before or after|with food|dose|dosage|kab)\b/.test(lower);
+  const asksHowLong = /\b(how long|until when|till when|end date|when (does|do|will) .* (end|finish|stop)|how many days|kitne din)\b/.test(lower);
+  const asksWho = /\b(who|which doctor|prescribed by|kis doctor)\b/.test(lower);
+  const asksList = /\b(what|which|current|my|all|list)\b.*\b(medicine|medicines|meds|tablets|pills|medication|dawai|dawa)\b|\btaking now\b|\bdo i (eat|take)\b/.test(lower);
+  const pluralList = /\b(medicines|meds|tablets|pills|all|list|what medicine|which medicine)\b/.test(lower);
+  const medicineAnswer = () => {
+    if (!m0)
+      return null;
+    if (asksHowLong)
+      return { answer: meds.map((m) => durationText(m, d)).join(" "), sources: src(meds), medicineId: m0.id };
+    if (asksWho) {
+      const doc = d.documents.find((x) => x.id === m0.documentId);
+      return { answer: doc ? `${title(m0)} was prescribed${doc.doctor ? ` by ${doc.doctor}` : " (no doctor name recorded)"} on ${fmt(doc.docDate)}.` : `${title(m0)} was entered by you; no prescription is linked.`, sources: src([m0]), medicineId: m0.id };
+    }
+    if (asksHow && !asksWhy)
+      return { answer: meds.map(howText).join(" "), sources: src(meds), medicineId: m0.id };
+    if (asksWhy || /\bwhat (is|are)\b|\btell me about\b|\babout\b/.test(lower))
+      return { answer: meds.map((m) => whyText(m, d)).join("\n\n"), sources: src(meds), medicineId: m0.id, suggestions: ["When do I take it?", "How long do I take it?"] };
+    return null;
+  };
+  if (explicit) {
+    const r = medicineAnswer();
+    if (r)
+      return r;
+  }
+  const general2 = generalMedicine(q);
+  if (general2 && !explicit && /\b(what|why|for|used|about|tell)\b/.test(lower)) {
+    const name = general2.names[0];
+    return { answer: `${generalText(name, general2)} ${name.charAt(0).toUpperCase() + name.slice(1)} is not in ${d.profileName}\u2019s records. ${GENERAL_NOTE}`, sources: [] };
+  }
+  const asksDosesToday = /\b(did i take|have i taken|taken today|missed|doses? today|today'?s (doses|medicines))\b/.test(lower);
+  if (asksList && (pluralList || !m0) && !asksHowLong && !asksWho && !asksDosesToday && !(asksHow && !pluralList)) {
+    const cur = currentMeds(d);
+    if (!cur.length)
+      return { answer: `No current medicines are recorded for ${d.profileName}. Add a prescription with \uFF0B and I can answer questions about it.`, sources: [], suggestions: SUGGEST };
+    const lines = cur.map((m) => `\u2022 ${title(m)} \u2014 ${timesText(m)}${m.instructions ? ", " + m.instructions : ""}`);
+    let answer = `Current medicines:
+${lines.join("\n")}`;
+    if (asksWhy)
+      answer += "\n\n" + cur.map((m) => whyText(m, d)).join("\n\n");
+    return { answer, sources: src(cur), medicineId: cur.length === 1 ? cur[0].id : null, suggestions: ["What is it for?", "When do I take it?", "How long do I take it?"] };
+  }
+  if (/\b(follow[- ]?up|appointment|next visit|checkup|check-up|see the doctor again)\b/.test(lower)) {
+    const today = localDateIso(d.now);
+    const next = d.appointments.filter((a) => a.status === "planned" && a.date && a.date >= today).sort((a, z) => a.date.localeCompare(z.date))[0];
+    const proposed = d.appointments.filter((a) => a.status === "proposed");
+    if (next)
+      return { answer: `Next follow-up: ${fmt(next.date)}${next.time ? " at " + next.time : ""}${next.doctor ? " with " + next.doctor : ""}${next.reason ? " \u2014 " + next.reason : ""}.`, sources: [] };
+    if (proposed.length)
+      return { answer: "There is a follow-up waiting for you to confirm the date. Open Follow-ups to confirm it.", sources: [] };
+    return { answer: "No follow-up is planned.", sources: [] };
+  }
+  if (/\ballerg/.test(lower))
+    return { answer: d.allergies ? `Recorded allergies: ${d.allergies}.` : `No allergies are recorded for ${d.profileName}. You can add them in the profile.`, sources: [] };
+  if (/\b(did i take|have i taken|taken today|missed|doses? today|today'?s (doses|medicines))\b/.test(lower)) {
+    const today = localDateIso(d.now);
+    const byKey = new Map(d.doseLogs.map((l) => [l.doseKey, l]));
+    const doses = d.medicines.flatMap((m) => doseOccurrences(m, today, today).map((o) => ({ m, o, s: doseState(o, byKey.get(o.key), d.now.getTime()) })));
+    if (!doses.length)
+      return { answer: "No doses are scheduled today.", sources: [] };
+    const label = { upcoming: "upcoming", due: "due now", taken: "taken", skipped: "skipped", missed: "not marked" };
+    return { answer: "Today:\n" + doses.sort((a, z) => a.o.at - z.o.at).map((x) => `\u2022 ${formatTime(x.o.time)} ${x.m.name}: ${label[x.s]}`).join("\n"), sources: [] };
+  }
+  const res = d.results.slice().sort((a, z) => (z.docDate ?? "").localeCompare(a.docDate ?? ""));
+  const testHit = res.find((r) => lower.includes(r.test.toLowerCase())) || (/sugar|hba1c|glucose|diabet/.test(lower) ? res.find((r) => /hba1c|glucose|sugar/i.test(r.test)) : void 0);
+  if (testHit) {
+    const v = num(testHit.value), lo = num(testHit.rangeLow), hi = num(testHit.rangeHigh);
+    const range = v !== null && hi !== null && v > hi ? ` That is above the report\u2019s range (up to ${hi}).` : v !== null && lo !== null && v < lo ? ` That is below the report\u2019s range (from ${lo}).` : "";
+    const prev = res.find((r) => r.test === testHit.test && r !== testHit);
+    return { answer: `The last ${testHit.test} was ${testHit.value ?? ""}${testHit.unit ? " " + testHit.unit : ""} on ${fmt(testHit.docDate)}.${range}${prev ? ` Before that: ${prev.value} on ${fmt(prev.docDate)}.` : ""} Discuss results with your doctor.`, sources: testHit.documentId ? [testHit.documentId] : [] };
+  }
+  if (/\b(result|results|test|tests|report|reports|lab)\b/.test(lower)) {
+    const latest = uniq(res.map((r) => r.test)).slice(0, 5).map((t) => res.find((r) => r.test === t));
+    return latest.length ? { answer: "Latest results:\n" + latest.map((r) => `\u2022 ${r.test}: ${r.value ?? ""}${r.unit ? " " + r.unit : ""} (${fmt(r.docDate)})`).join("\n"), sources: uniq(latest.map((r) => r.documentId).filter((x) => !!x)) } : { answer: "No test results are recorded yet.", sources: [] };
+  }
+  if (/\b(doctor|doctors|last visit|visited)\b/.test(lower)) {
+    const docs = d.documents.filter((x) => x.doctor).sort((a, z) => (z.docDate ?? "").localeCompare(a.docDate ?? ""));
+    if (!docs.length)
+      return { answer: "No doctor names are recorded on the documents.", sources: [] };
+    return { answer: `Doctors in the records: ${uniq(docs.map((x) => x.doctor)).join(", ")}. Most recent: ${docs[0].doctor} on ${fmt(docs[0].docDate)} (${docs[0].type.toLowerCase()}).`, sources: [docs[0].id] };
+  }
+  if (/\b(diagnos(is|es|ed)|condition|illness|disease)\b/.test(lower)) {
+    const dx = d.documents.filter((x) => x.diagnosisWritten);
+    return dx.length ? { answer: "Diagnoses written by doctors on the documents:\n" + dx.map((x) => `\u2022 ${x.diagnosisWritten} \u2014 ${x.doctor ?? "doctor"}, ${fmt(x.docDate)}`).join("\n"), sources: dx.map((x) => x.id) } : { answer: "No diagnosis is written on any saved document.", sources: [] };
+  }
+  const ep = d.episodes.slice().sort((a, z) => z.createdAt.localeCompare(a.createdAt));
+  const epHit = ep.find((e) => e.complaint.toLowerCase().split(/\W+/).some((w) => w.length > 3 && lower.includes(w)));
+  if (epHit || /\b(symptom|symptoms|felt|feeling|last time i (had|was))\b/.test(lower)) {
+    const list = epHit ? ep.filter((e) => e.complaint.toLowerCase() === epHit.complaint.toLowerCase()) : ep.slice(0, 5);
+    return list.length ? { answer: "Symptom checks you saved:\n" + list.map((e) => `\u2022 ${fmt(e.createdAt.slice(0, 10))}: ${e.complaint}`).join("\n"), sources: [] } : { answer: "No symptom checks are saved yet. Use \u201CCheck a symptom\u201D if you feel unwell.", sources: [] };
+  }
+  const implicit = medicineAnswer();
+  if (implicit)
+    return implicit;
+  if ((asksWhy || asksHow || asksHowLong) && currentMeds(d).length > 1) {
+    return { answer: `Which medicine do you mean? ${d.profileName} takes ${currentMeds(d).map((m) => m.name).join(", ")}.`, sources: [], suggestions: currentMeds(d).map((m) => `What is ${m.name.split(/\s+/)[0]} for?`) };
+  }
+  if (!d.documents.length && !d.medicines.length) {
+    return { answer: `There are no records for ${d.profileName} yet. Add a prescription or report with \uFF0B, then ask me about medicines, results or follow-ups.`, sources: [], suggestions: SUGGEST };
+  }
+  return {
+    answer: `I couldn\u2019t find an answer to that in ${d.profileName}\u2019s records. I can answer questions like the ones below. For general health questions, use the Health Info assistant; if you feel unwell, use \u201CCheck a symptom\u201D.`,
+    sources: [],
+    suggestions: SUGGEST
+  };
+}
 export {
   EMERGENCY_MESSAGE,
   EMERGENCY_NUMBER,
@@ -1849,6 +2179,7 @@ export {
   TRIAGE_ENGINE_VERSION,
   addDaysLocal,
   appointmentAlarms,
+  askCare,
   buildDoseAlarms,
   computeOutcome,
   deriveStatus,

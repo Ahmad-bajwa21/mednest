@@ -22,3 +22,4 @@ export {
 } from '../domain/schedule';
 export { proposeFollowUp, parseFollowUp, appointmentAlarms } from '../domain/followUp';
 export { todaysDoses, pastDoses, upcomingAppointments, pendingConfirmations, historyEntries } from '../domain/care';
+export { askCare } from '../domain/askCare';

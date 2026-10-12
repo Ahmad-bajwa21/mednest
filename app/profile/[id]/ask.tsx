@@ -1,33 +1,48 @@
-// S14 — Ask. Scope is one profile. Advice-seeking questions get a fixed refusal; every
-// answer lists its source documents. Rule-based on-web/stub; model-backed on-device.
+// S14 — Ask. Scope is one profile. Shared rules-based answerer (src/domain/askCare):
+// medicines (what for, when, how long, who prescribed), results, follow-ups, allergies,
+// doses and symptom checks, plus curated general medicine information. Advice-seeking
+// questions get a fixed refusal; emergencies get the call-now message.
 import { useState } from 'react';
 import { ScrollView, View, TextInput, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useBundle } from '../../../src/features/useBundle';
-import { askRecords, type AskAnswer } from '../../../src/domain/ask';
+import { askCare } from '../../../src/domain/askCare';
+import { useCare } from '../../../src/features/useCare';
 import { useTheme } from '../../../src/design/theme';
 import { Button, Card, Chip, Disclaimer, Text } from '../../../src/design/components';
 import { BottomTabs } from '../../../src/features/BottomTabs';
 import { layout, radius, space } from '../../../src/design/tokens';
 
-interface Turn { role: 'user' | 'bot'; text: string; sources?: string[] }
-const SUGGESTED = ['Last sugar test?', 'Current medicines?', 'What changed this year?'];
-const SYMPTOM_HINT = 'Feeling unwell? Use “Check a symptom” for guided questions and next steps.';
+interface Turn { role: 'user' | 'bot'; text: string; sources?: string[]; suggestions?: string[]; emergency?: boolean }
+const SUGGESTED = ['What medicines am I taking, and why?', 'When do I take them?', 'Next follow-up?', 'Last sugar test?'];
 
 export default function Ask() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { bundle } = useBundle(id);
+  const { profile, data } = useCare(id);
   const { c } = useTheme();
   const [log, setLog] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
+  const [lastMedicineId, setLastMedicineId] = useState<string | null>(null);
 
   const submit = (text: string) => {
-    if (!text.trim() || !bundle) return;
-    const res: AskAnswer | null = askRecords(bundle, text);
-    const answer = res?.refusal ? `${res.answer}\n\n${SYMPTOM_HINT}` : res?.answer ?? '';
-    setLog((l) => [...l, { role: 'user', text }, { role: 'bot', text: answer, sources: res?.sources }]);
+    if (!text.trim() || !bundle || !data || !profile) return;
+    const res = askCare(text, {
+      profileName: profile.name,
+      allergies: profile.allergies,
+      documents: data.documents,
+      medicines: data.medicines,
+      results: bundle.results,
+      appointments: data.appointments,
+      episodes: data.episodes,
+      doseLogs: data.doseLogs,
+      now: new Date(),
+    }, { lastMedicineId });
+    if (res?.medicineId) setLastMedicineId(res.medicineId);
+    setLog((l) => [...l, { role: 'user', text }, { role: 'bot', text: res?.answer ?? '', sources: res?.sources, suggestions: res?.suggestions, emergency: res?.emergency }]);
     setInput('');
   };
+  const last = [...log].reverse().find((t) => t.role === 'bot');
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
@@ -44,7 +59,7 @@ export default function Ask() {
           </View>
         ) : (
           log.map((t, i) => (
-            <Card key={i} style={t.role === 'user' ? { borderColor: c.accent, marginLeft: 40 } : undefined}>
+            <Card key={i} style={t.role === 'user' ? { borderColor: c.accent, marginLeft: 40 } : t.emergency ? { borderColor: c.danger, borderWidth: 2 } : undefined}>
               <Text>{t.role === 'user' ? 'You: ' : ''}{t.text}</Text>
               {t.sources && t.sources.length ? (
                 <Text variant="caption" muted style={{ marginTop: space.xs }}>Source: {t.sources.length} document(s)</Text>
@@ -52,6 +67,11 @@ export default function Ask() {
             </Card>
           ))
         )}
+        {last?.suggestions?.length ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+            {last.suggestions.map((q) => <Chip key={q} label={q} onPress={() => submit(q)} />)}
+          </View>
+        ) : null}
         <Disclaimer />
       </ScrollView>
 

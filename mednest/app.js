@@ -217,47 +217,23 @@ function patternNotes(pid) {
   return notes.slice(0, 5);
 }
 
-/* ============================== Ask: rule-based retrieval (spec §6.4 Task D / §7.4) ============================== */
-const ADVICE_RE = /\b(should i|do i have|is it (safe|ok|okay)|can i (stop|start|take|increase|double)|diagnos|what('?s| is) wrong|cure|treat(ment)?|prescribe me|how much should)\b/i;
-
-function askRecords(pid, question) {
-  const q = question.trim();
-  if (!q) return null;
-  if (ADVICE_RE.test(q)) {
-    return { refusal: true, answer: "I can't advise on that. I can show you what your records say, and you can discuss it with your doctor. Feeling unwell? Use “Check a symptom” for guided questions and next steps.", sources: [] };
-  }
-  if (byProfile(DB.documents, pid).length === 0) {
-    return { answer: "There are no records for this person yet. Add a document (tap ＋ on the overview), then I can answer questions about it. MedNest only answers from your own documents — it does not give general medical information.", sources: [] };
-  }
-  const lower = q.toLowerCase();
-  if (/\b(current|active|which) medicine|what (medicine|meds)|taking now\b/.test(lower)) {
-    const meds = activeMeds(pid);
-    return meds.length
-      ? { answer: 'Active medicines: ' + meds.map((m) => `${m.name}${m.dose ? ' ' + m.dose : ''}`).join('; ') + '.', sources: [...new Set(meds.map((m) => m.documentId))] }
-      : { answer: 'No active medicines are recorded.', sources: [] };
-  }
-  const res = sortedResults(pid);
-  const testHit = res.find((r) => lower.includes(r.test.toLowerCase())) ||
-    (/sugar|hba1c|glucose/.test(lower) && res.find((r) => /hba1c|glucose|sugar/i.test(r.test)));
-  if ((/last|latest|recent|when/.test(lower)) && testHit) {
-    return { answer: `The last ${testHit.test} was ${testHit.value}${testHit.unit ? ' ' + testHit.unit : ''} on ${fmtDate(testHit.docDate)}.`, sources: [testHit.documentId] };
-  }
-  if (/what changed|this year|trend|pattern/.test(lower)) {
-    const notes = patternNotes(pid);
-    return notes.length
-      ? { answer: notes.map((n) => n.text).join(' '), sources: [...new Set(notes.flatMap((n) => n.sources))] }
-      : { answer: 'No notable patterns found yet in the records.', sources: [] };
-  }
-  const words = lower.split(/\s+/).filter((w) => w.length > 2);
-  const scoreText = (t) => words.reduce((s, w) => s + ((t || '').toLowerCase().includes(w) ? 1 : 0), 0);
-  const docScores = byProfile(DB.documents, pid).map((d) => {
-    const meds = byProfile(DB.medicines, pid).filter((m) => m.documentId === d.id).map((m) => m.name).join(' ');
-    const rs = byProfile(DB.results, pid).filter((r) => r.documentId === d.id).map((r) => r.test + ' ' + r.value).join(' ');
-    return { d, score: scoreText(`${d.type} ${d.doctor} ${meds} ${rs}`) };
-  }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
-  if (!docScores.length) return { answer: 'I could not find that in the records.', sources: [] };
-  const top = docScores[0].d;
-  return { answer: `Found in a ${top.type.toLowerCase()} from ${fmtDate(top.docDate)}${top.doctor ? ' (' + top.doctor + ')' : ''}. See the sources below.`, sources: docScores.map((x) => x.d.id) };
+/* ============================== Ask (spec §6.4 Task D / §7.4) ============================== */
+// Shared rules-based answerer (src/domain/askCare.ts): answers from this person's own
+// records plus curated general medicine information; refuses advice; catches emergencies.
+function askRecords(pid, question, context = {}) {
+  const p = getProfile(pid);
+  const data = {
+    profileName: p.name,
+    allergies: p.allergies || null,
+    documents: byProfile(DB.documents, pid),
+    medicines: byProfile(DB.medicines, pid),
+    results: byProfile(DB.results, pid),
+    appointments: byProfile(DB.appointments, pid),
+    episodes: byProfile(DB.episodes, pid),
+    doseLogs: byProfile(DB.doseLogs, pid),
+    now: new Date(),
+  };
+  return core.askCare(question, data, context);
 }
 
 /* ============================== render helpers ============================== */
@@ -961,15 +937,17 @@ function screenAsk(id) {
 function renderAsk(id) {
   const p = getProfile(id);
   const chat = window.__chat;
-  const chips = ['Last sugar test?', 'Current medicines?', 'What changed this year?'];
+  const chips = ['What medicines am I taking, and why?', 'When do I take them?', 'Next follow-up?', 'Last sugar test?'];
   const logHtml = chat.log.map((m) => m.role === 'user'
     ? `<div class="card" style="margin-left:40px;border-color:var(--accent)"><strong>You:</strong> ${esc(m.text)}</div>`
-    : `<div class="card"><div>${esc(m.text)}</div>${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
+    : `<div class="card ${m.emergency ? 'bubble-emergency' : ''}"><div class="msg">${esc(m.text).replace(/\n/g, '<br>')}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
+  const lastBot = [...chat.log].reverse().find((m) => m.role === 'bot');
+  const followChips = lastBot?.suggestions?.length ? `<div class="chips" style="margin-top:8px">${lastBot.suggestions.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
   render(`
     ${topbar('#/profile/' + id, 'Ask')}
     <div class="screen">
-      ${chat.log.length ? '' : `<div class="card"><div class="caption">I answer only from ${esc(p.name)}'s saved records. To talk through a symptom, use <a class="inline" href="#/profile/${id}/assistant">Check a symptom</a>.</div></div>`}
-      ${chat.log.length ? logHtml : `<div class="chips">${chips.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}<button class="chip" data-go="#/profile/${id}/assistant">Check a symptom →</button></div>`}
+      ${chat.log.length ? '' : `<div class="card"><div class="caption">Ask about ${esc(p.name)}'s medicines (what they are for, when to take them, for how long), results, follow-ups, allergies or doses. To talk through a symptom, use <a class="inline" href="#/profile/${id}/assistant">Check a symptom</a>.</div></div>`}
+      ${chat.log.length ? logHtml + followChips : `<div class="chips">${chips.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}<button class="chip" data-go="#/profile/${id}/assistant">Check a symptom →</button></div>`}
       <div class="disclaimer">${DISCLAIMER}</div>
       <div class="row" style="gap:8px;position:sticky;bottom:72px"><input id="ask-input" placeholder="Ask about ${esc(p.name)}…" class="grow"/><button class="iconbtn" id="ask-send" style="background:var(--accent);color:var(--onAccent)">➤</button></div>
     </div>${tabsBar(id, 'ask')}`);
@@ -1072,7 +1050,16 @@ function wire() {
 
   if ($('#ask-send')) {
     const id = location.hash.split('/')[2];
-    const submit = (text) => { if (!text?.trim()) return; const res = askRecords(id, text); window.__chat.log.push({ role: 'user', text }); window.__chat.log.push({ role: 'bot', text: res.answer, sources: res.sources }); renderAsk(id); };
+    const submit = (text) => {
+      if (!text?.trim()) return;
+      const chat = window.__chat;
+      const res = askRecords(id, text, { lastMedicineId: chat.lastMedicineId });
+      if (res.medicineId) chat.lastMedicineId = res.medicineId;
+      chat.log.push({ role: 'user', text });
+      chat.log.push({ role: 'bot', text: res.answer, sources: res.sources, suggestions: res.suggestions, emergency: res.emergency });
+      renderAsk(id);
+      window.scrollTo(0, document.body.scrollHeight);
+    };
     $('#ask-send').addEventListener('click', () => submit($('#ask-input').value));
     $('#ask-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(e.target.value); });
     app.querySelectorAll('[data-ask]').forEach((b) => b.addEventListener('click', () => submit(b.dataset.ask)));

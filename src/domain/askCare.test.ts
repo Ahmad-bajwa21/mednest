@@ -1,0 +1,77 @@
+import { askCare, type AskData } from './askCare';
+import { lookupMedicineInfo } from '../ai/medicineInfo';
+
+const base = (over: Partial<AskData> = {}): AskData => ({
+  profileName: 'Tashfeen',
+  allergies: 'penicillin',
+  documents: [{ id: 'd1', type: 'Prescription', docDate: '2026-10-13', doctor: 'Dr. Ali', diagnosisWritten: null }],
+  medicines: [
+    { id: 'm1', documentId: 'd1', name: 'warfarin', dose: '5mg', times: ['Night'], startDate: '2026-10-13', durationDays: null, status: 'active', confirmedAt: '2026-10-13' },
+  ],
+  results: [],
+  appointments: [],
+  episodes: [],
+  doseLogs: [],
+  now: new Date(2026, 9, 13, 12, 0),
+  ...over,
+});
+
+describe('Ask', () => {
+  it('"what medicine do i eat and why" lists AND explains', () => {
+    const r = askCare('what medicine do i eat and why', base())!;
+    expect(r.answer).toMatch(/warfarin 5mg — 9:00 PM/);
+    expect(r.answer).toMatch(/prescribed by Dr\. Ali/);
+    expect(r.answer).toMatch(/does not say what it is for/);
+    expect(r.answer).toMatch(/blood thinner/);
+    expect(r.medicineId).toBe('m1');
+  });
+
+  it('"what is this medicine for" follows up on the last medicine', () => {
+    const d = base({ medicines: [...base().medicines, { id: 'm2', documentId: 'd1', name: 'Risek', dose: '20mg', times: ['Morning'], startDate: '2026-10-13', status: 'active', confirmedAt: 'x' }] });
+    const r = askCare('what is this medicine for', d, { lastMedicineId: 'm1' })!;
+    expect(r.answer).toMatch(/warfarin/i);
+    expect(r.answer).toMatch(/INR/);
+    expect(r.answer).not.toMatch(/could not find|couldn’t find/);
+  });
+
+  it('uses the diagnosis written on the prescription when there is one', () => {
+    const d = base({ documents: [{ id: 'd1', type: 'Prescription', docDate: '2026-10-13', doctor: 'Dr. Ali', diagnosisWritten: 'Atrial fibrillation' }] });
+    expect(askCare('why do I take warfarin?', d)!.answer).toMatch(/lists the diagnosis: Atrial fibrillation/);
+  });
+
+  it('answers when / how long / who', () => {
+    expect(askCare('when do I take it?', base())!.answer).toMatch(/9:00 PM/);
+    expect(askCare('how long do I take warfarin', base())!.answer).toMatch(/No duration is written/);
+    expect(askCare('which doctor prescribed it', base())!.answer).toMatch(/Dr\. Ali on 13 Oct 2026/);
+  });
+
+  it('gives general info for a medicine not in the record', () => {
+    const r = askCare('what is panadol for', base())!;
+    expect(r.answer).toMatch(/pain reliever/);
+    expect(r.answer).toMatch(/not in Tashfeen’s records/);
+  });
+
+  it('still refuses advice and catches emergencies', () => {
+    expect(askCare('should I stop warfarin?', base())!.refusal).toBe(true);
+    expect(askCare('I have chest pain', base())!.emergency).toBe(true);
+  });
+
+  it('answers follow-ups, allergies and today’s doses', () => {
+    const d = base({ appointments: [{ id: 'a1', date: '2026-10-20', status: 'planned', doctor: 'Dr. Ali', reason: 'INR check' }] });
+    expect(askCare('when is my next follow up', d)!.answer).toMatch(/20 Oct 2026 with Dr\. Ali — INR check/);
+    expect(askCare('any allergies?', d)!.answer).toMatch(/penicillin/);
+    expect(askCare('did I take my medicines today', d)!.answer).toMatch(/9:00 PM warfarin: upcoming/);
+  });
+
+  it('never dead-ends: unknown questions get suggestions', () => {
+    const r = askCare('tell me a joke', base())!;
+    expect(r.suggestions?.length).toBeGreaterThan(0);
+  });
+
+  it('medicine lookup handles brands and small typos', () => {
+    expect(lookupMedicineInfo('Tab. Risek 20mg')?.what).toMatch(/acid reducer/);
+    expect(lookupMedicineInfo('Augmentin 625')?.what).toMatch(/antibiotic/);
+    expect(lookupMedicineInfo('warfrin')?.what).toMatch(/blood thinner/);
+    expect(lookupMedicineInfo('xyz')).toBeNull();
+  });
+});
