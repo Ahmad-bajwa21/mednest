@@ -84,6 +84,19 @@ recommend", §15 out-of-scope "diagnosis, risk scores, treatment suggestions"):
 - Deleting a document / profile / all data now also deletes the image files.
 - **Still open:** document images are not yet AES-256-GCM encrypted at rest (spec §10).
 
+## Monetisation: ads only (owner's call, 2026-10-17)
+- Everything stays free; revenue from ads only (no subscription, no paid ad removal).
+- Web: Google AdSense, config `ADS` in `mednest/app.js`; Android: AdMob banner,
+  `src/config/ads.ts` + app id in `app.json`. Empty config = no ads; dev builds use test ads.
+- Placement allow-list: profiles, home, records, documents, medicines list,
+  appointments, settings. Never: symptom check, emergency/mental-health messages,
+  chats (Ask, general questions), medicine details, document review, doctor summaries.
+- Non-personalised ads only; no health/profile data to ad networks; labelled
+  "Advertisement"; inline banners, no interstitials or pop-ups.
+- To switch on: (web) AdSense approval needs a custom domain (not *.vercel.app), then
+  add `ads.txt`; (Android) AdMob account, app id + banner unit id, Play Store listing.
+  In AdSense/AdMob, block sensitive categories (drugs & supplements, dating, gambling).
+
 ## Mental health pathway (2026-10-16)
 - Mood/mental-health messages go to a dedicated protocol (never physical questions):
   empathy first, then the standard safety questions asked directly and gently —

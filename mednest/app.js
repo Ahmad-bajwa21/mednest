@@ -308,7 +308,7 @@ function askRecords(pid, question, context = {}) {
 }
 
 /* ============================== render helpers ============================== */
-function render(html) { app.innerHTML = html; wire(); window.scrollTo(0, 0); }
+function render(html) { app.innerHTML = html; wire(); window.scrollTo(0, 0); if (typeof hydrateAds === 'function') hydrateAds(); }
 const go = (route) => { location.hash = route; };
 const routeNow = () => route();
 
@@ -320,8 +320,39 @@ function tabsBar(pid, active) {
   const t = (r, ic, label, key) => `<a href="#/profile/${pid}${r}" class="${on === key ? 'on' : ''}" ${on === key ? 'aria-current="page"' : ''}><span class="ti">${icon(ic, 22)}</span>${label}</a>`;
   return `<nav class="tabs" aria-label="Main">${t('', 'home', 'Home', 'home')}${t('/assist', 'assistant', 'Assistant', 'assist')}${t('/history', 'records', 'Records', 'records')}${t('/meds', 'pill', 'Medicines', 'meds')}${t('/appointments', 'calendar', 'Appointments', 'appts')}</nav>`;
 }
-// The web demo shows no ads (the Android app has a labelled banner slot, spec §11).
-const adSlot = () => '';
+/* ============================== advertising ============================== */
+// MedNest is free and funded by ads. Paste your Google AdSense IDs here to switch them
+// on (empty = no ads at all). Rules, enforced by ALLOWED_AD_PLACES:
+//  - only list/overview screens; NEVER the symptom check, emergency or mental-health
+//    messages, chats, medicine details or doctor summaries;
+//  - non-personalised ads only; no health or profile data is ever sent to the ad network;
+//  - always labelled "Advertisement", inline (never covering the app).
+const ADS = {
+  client: '', // e.g. 'ca-pub-1234567890123456'
+  slot: '', // a responsive display ad unit id, e.g. '1234567890'
+};
+const ALLOWED_AD_PLACES = new Set(['profiles', 'home', 'records', 'documents', 'medicines', 'appointments', 'settings']);
+const adsOn = () => !!(ADS.client && ADS.slot);
+function adSlot(place = 'documents') {
+  if (!adsOn() || !ALLOWED_AD_PLACES.has(place)) return '';
+  return `<div class="ad-wrap" role="complementary" aria-label="Advertisement"><div class="ad-label">Advertisement</div><ins class="adsbygoogle" style="display:block" data-ad-client="${ADS.client}" data-ad-slot="${ADS.slot}" data-ad-format="auto" data-full-width-responsive="true"></ins></div>`;
+}
+let adsScript = false;
+function hydrateAds() {
+  const units = app.querySelectorAll ? [...app.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])')] : [];
+  if (!units.length || !adsOn()) return;
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adsbygoogle.requestNonPersonalizedAds = 1; // health app: never personalised
+  if (!adsScript) {
+    adsScript = true;
+    const sc = document.createElement('script');
+    sc.async = true;
+    sc.crossOrigin = 'anonymous';
+    sc.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADS.client}`;
+    document.head.appendChild(sc);
+  }
+  for (const _ of units) { try { window.adsbygoogle.push({}); } catch (_e) { /* ad blocked or not ready */ } }
+}
 const dotHtml = (c) => `<span class="dot" style="background:${esc(c || DOT_COLORS[0])}"></span>`;
 const srcLinks = (pid, ids) => [...new Set(ids)].map((id) => { const d = getDoc(id); return d ? `<a class="inline" href="#/profile/${pid}/doc/${id}">${esc(d.type)}, ${fmtDate(d.docDate)}</a>` : ''; }).filter(Boolean).join(' · ');
 const topbar = (back, title, extra = '') => `<div class="topbar"><button class="iconbtn back" data-go="${back}" aria-label="Back">${icon('back', 24)}</button><h1>${title}</h1>${extra}</div>`;
@@ -380,6 +411,7 @@ function screenProfiles() {
       ${body}
       <div class="card link" data-go="#/health-info"><div class="row grow"><span class="tile info">${icon('chat')}</span><div class="grow"><div class="name">General health questions</div><div class="list-sub">An open-source assistant that runs in your browser</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
       <div class="trust"><span class="tile">${icon('shield')}</span><div class="grow"><div class="name">Private by design</div><div class="caption" style="color:var(--text)">Your records stay in this browser — no account, no MedNest server. Only medicine names and health topics you look up are sent to public medical sources. <a class="inline" href="#/settings">Privacy &amp; data</a></div></div></div>
+      ${adSlot('profiles')}
     </div>`);
 }
 
@@ -471,6 +503,7 @@ function screenOverview(id) {
       <div class="card"><div class="caption" style="margin-bottom:4px">Summary · built from ${docs.length} document${docs.length === 1 ? '' : 's'}</div>${esc(buildSummary(id))}</div>
       ${notes.length ? `<h2 class="sec">Things to notice</h2><div class="card">${notes.map((n) => `<div style="margin-bottom:10px">${esc(n.text)}<div class="caption">${srcLinks(id, n.sources)}${n.sources.length ? ' · ' : ''}Discuss with your doctor.</div></div>`).join('')}</div>` : ''}
       <div class="btn-row"><button class="btn secondary" data-go="#/profile/${id}/visit">${icon('stethoscope', 18)} Doctor visit summary</button><button class="btn secondary" data-go="#/profile/${id}/history">${icon('records', 18)} Medical history</button></div>
+      ${adSlot('home')}
       <div class="disclaimer">${DISCLAIMER}</div>
     </div>
     <button class="fab" data-go="#/profile/${id}/add">${icon('plus', 20)} Add document</button>${tabsBar(id, 'home')}`);
@@ -794,7 +827,7 @@ function screenTimeline(id) {
       return `<div class="card link" data-go="#/profile/${id}/doc/${doc.id}"><div class="grow"><div class="row" style="justify-content:space-between"><span class="name">${fmtDate(doc.docDate)}</span><span class="muted">${esc(doc.type)}</span></div><div class="list-sub truncate">${esc(sub)}</div></div><span class="arrow">›</span></div>`;
     }).join('')}`).join('');
   }
-  render(`${topbar(`#/profile/${id}/history`, 'Documents')}<div class="screen">${body}</div>${adSlot()}${tabsBar(id, 'history')}`);
+  render(`${topbar(`#/profile/${id}/history`, 'Documents')}<div class="screen">${body}</div>${adSlot('documents')}${tabsBar(id, 'history')}`);
 }
 
 /* ============================== medical history (proposal §2/§8) ============================== */
@@ -817,7 +850,7 @@ function screenHistory(id) {
       <div class="row" style="gap:8px"><button class="btn secondary" data-go="#/profile/${id}/visit">Doctor visit summary</button><button class="btn secondary" data-go="#/profile/${id}/timeline">All documents</button></div>
       ${body}
       <div class="disclaimer">${DISCLAIMER}</div>
-    </div>${tabsBar(id, 'history')}`);
+    ${adSlot('records')}</div>${tabsBar(id, 'history')}`);
 }
 
 function screenEpisode(id, eid) {
@@ -932,7 +965,7 @@ function screenMeds(id) {
   const all = byProfile(DB.medicines, id);
   const current = all.filter((m) => ['active', 'paused', 'pending'].includes(medStatus(m)));
   const past = all.filter((m) => !current.includes(m));
-  render(`${topbar('#/profile/' + id, 'Medicines', `<button class="textbtn" data-go="#/profile/${id}/doses">Doses</button>`)}<div class="screen"><h2 class="sec">Current (${current.length})</h2>${current.length ? current.map((m) => medCard(id, m)).join('') : '<div class="muted">No current medicines</div>'}${past.length ? `<h2 class="sec">Past (${past.length})</h2>${past.map((m) => medCard(id, m)).join('')}` : ''}<div class="disclaimer">${DISCLAIMER}</div></div>${tabsBar(id, 'meds')}`);
+  render(`${topbar('#/profile/' + id, 'Medicines', `<button class="textbtn" data-go="#/profile/${id}/doses">Doses</button>`)}<div class="screen"><h2 class="sec">Current (${current.length})</h2>${current.length ? current.map((m) => medCard(id, m)).join('') : '<div class="muted">No current medicines</div>'}${past.length ? `<h2 class="sec">Past (${past.length})</h2>${past.map((m) => medCard(id, m)).join('')}` : ''}${adSlot('medicines')}<div class="disclaimer">${DISCLAIMER}</div></div>${tabsBar(id, 'meds')}`);
 }
 
 function screenMedicine(id, mid, editing = false) {
@@ -1085,7 +1118,7 @@ function screenAppointments(id, editing = null) {
       ${planned.map((a) => (editing === a.id ? editor() : `<div class="card" ${a.date < today ? 'style="border-color:var(--warn)"' : ''}><div class="row" style="justify-content:space-between"><span class="name">${fmtDate(a.date)}${a.time ? ' · ' + esc(a.time) : ''}</span>${a.date < today ? '<span class="pill warn">Date passed</span>' : ''}</div><div class="list-sub">${esc([a.doctor, a.reason].filter(Boolean).join(' · ') || 'Follow-up')}</div><div class="caption">Reminders: the evening before and on the day.</div><div class="row" style="flex-wrap:wrap;gap:0"><button class="textbtn" data-ast="${a.id}" data-v="completed">Mark done</button><button class="textbtn" data-edit="${a.id}">Reschedule</button><button class="textbtn" data-ast="${a.id}" data-v="cancelled">Cancel</button></div></div>`)).join('')}
       ${done.length ? `<h2 class="sec">Past</h2>${done.map((a) => `<div class="card"><div>${fmtDate(a.date)} · ${a.status === 'completed' ? 'Done' : 'Cancelled'}</div><div class="caption">${esc([a.doctor, a.reason].filter(Boolean).join(' · '))}</div></div>`).join('')}` : ''}
       <div class="disclaimer">MedNest reminds you; it does not book appointments. ${DISCLAIMER}</div>
-    </div>${tabsBar(id, 'appts')}`);
+    ${adSlot('appointments')}</div>${tabsBar(id, 'appts')}`);
   app.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => screenAppointments(id, b.dataset.edit)));
   app.querySelectorAll('[data-ast]').forEach((b) => b.addEventListener('click', () => { const a = DB.appointments.find((x) => x.id === b.dataset.ast); const before = a.status; a.status = b.dataset.v; a.updatedAt = nowIso(); audit(id, 'appointment', a.id, 'status', { before, after: a.status }); save(); screenAppointments(id); }));
   $('#a-cancel')?.addEventListener('click', () => screenAppointments(id));
@@ -1396,6 +1429,7 @@ function screenSettings() {
       <div class="card link" id="notif"><div class="row grow"><span class="tile ">${icon('clock', 20)}</span><div class="grow"><div class="name">Medicine &amp; follow-up reminders</div><div class="list-sub">${perm}</div></div></div><span class="arrow">${icon('next', 20)}</span></div>
       <h2 class="sec">About MedNest</h2>
       <div class="card"><div class="row" style="align-items:flex-start"><span class="tile">${icon('stethoscope', 20)}</span><div class="grow caption" style="color:var(--text)">MedNest organises your records, and its symptom check helps you decide when to get care. It does not diagnose and does not replace your doctor. In an emergency call ${core.EMERGENCY_NUMBER}.</div></div></div>
+      ${adSlot('settings')}
       <div class="counter">MedNest web · v1.2.0 · ${esc(core.TRIAGE_ENGINE_VERSION)}</div>
     </div>`);
   $('#notif')?.addEventListener('click', async () => { if (typeof Notification !== 'undefined' && Notification.permission === 'default') { await Notification.requestPermission(); screenSettings(); } });

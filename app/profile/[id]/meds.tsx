@@ -5,7 +5,7 @@ import { ScrollView, View } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { useCare } from '../../../src/features/useCare';
 import { useTheme } from '../../../src/design/theme';
-import { Button, Card, Disclaimer, Text } from '../../../src/design/components';
+import { Button, Card, Disclaimer, Text, BannerAdSlot } from '../../../src/design/components';
 import { BottomTabs } from '../../../src/features/BottomTabs';
 import { layout, space } from '../../../src/design/tokens';
 import { deriveStatus, effectiveEndDate, formatTime, localDateIso, resolveTime, scheduleBlockers, type MedStatus } from '../../../src/domain/schedule';
@@ -58,6 +58,7 @@ export default function Meds() {
         ) : null}
         <Disclaimer />
       </ScrollView>
+      <BannerAdSlot />
       <BottomTabs id={id!} active="meds" />
     </View>
   );

@@ -4,6 +4,7 @@ import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ThemeProvider, useTheme } from '../src/design/theme';
 import { installReminders } from '../src/features/reminders';
+import mobileAds from 'react-native-google-mobile-ads';
 
 function Nav() {
   const { c, name } = useTheme();
@@ -25,6 +26,8 @@ export default function RootLayout() {
   // Medicine + follow-up reminders: rebuilt from the database on start and on every
   // return to the foreground; tapping a reminder opens that profile's doses.
   useEffect(() => {
+    // Ads (non-personalised) fund the free app; shown on list screens only.
+    mobileAds().initialize().catch(() => undefined);
     let cleanup: (() => void) | undefined;
     installReminders((profileId) => router.push(`/profile/${profileId}/doses`))
       .then((fn) => { cleanup = fn; })

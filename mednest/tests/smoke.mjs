@@ -122,6 +122,10 @@ globalThis.location.hash = `#/profile/${PID}/visit`;
 globalThis.__hashchange();
 checks.push(['visit summary: timeline, urgent banner, records', /Seeing a doctor today was advised/.test(lastHTML) && /severity 8\/10; with: Fever/.test(lastHTML) && /Said no to/.test(lastHTML) && /penicillin/.test(lastHTML)]);
 
+globalThis.location.hash = `#/profile/${PID}/assistant`;
+globalThis.__hashchange();
+checks.push(['no ads in the symptom check (and none while unconfigured)', !/adsbygoogle|Advertisement/.test(lastHTML)]);
+
 console.log('\n--- content checks ---');
 for (const [label, ok] of checks) { console.log(`${ok ? '✅' : '❌'} ${label}`); ok ? pass++ : fail++; }
 console.log(`\n${pass} passed, ${fail} failed`);

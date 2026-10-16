@@ -6,7 +6,7 @@ import { useCallback } from 'react';
 import { ScrollView, View } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../../src/design/theme';
-import { Button, Card, Disclaimer, EmptyState, Text } from '../../../src/design/components';
+import { Button, Card, Disclaimer, EmptyState, Text, BannerAdSlot } from '../../../src/design/components';
 import { layout, space } from '../../../src/design/tokens';
 import { useCare } from '../../../src/features/useCare';
 import { historyEntries, type HistoryEntry, type HistoryKind } from '../../../src/domain/care';
@@ -75,6 +75,7 @@ export default function History() {
         )}
         <Disclaimer />
       </ScrollView>
+      <BannerAdSlot />
     </View>
   );
 }

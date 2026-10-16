@@ -10,7 +10,9 @@ import {
   TextInputProps,
   ActivityIndicator,
 } from 'react-native';
+import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { useTheme } from './theme';
+import { ADMOB_BANNER_UNIT_ID_ANDROID } from '../config/ads';
 import { layout, radius, space, type as T } from './tokens';
 
 /* ---------- Text ---------- */
@@ -170,20 +172,16 @@ export function EmptyState({ icon, message, action }: { icon: string; message: s
   );
 }
 
-/* ---------- Banner ad slot (fixed 50dp, labelled "Ad") ---------- */
+/* ---------- Banner ad (labelled, non-personalised; allowed screens only) ---------- */
+// Test ads in development; real ads only when ADMOB_BANNER_UNIT_ID_ANDROID is set.
+const AD_UNIT = __DEV__ ? TestIds.ADAPTIVE_BANNER : ADMOB_BANNER_UNIT_ID_ANDROID || null;
 export function BannerAdSlot() {
   const { c } = useTheme();
+  if (!AD_UNIT) return null;
   return (
-    <View
-      style={{
-        height: layout.bannerAdHeight,
-        borderTopWidth: layout.borderWidth,
-        borderColor: c.border,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <RNText style={[T.caption, { color: c.textMuted, letterSpacing: 2 }]}>AD</RNText>
+    <View style={{ borderTopWidth: layout.borderWidth, borderColor: c.border, alignItems: 'center', paddingTop: space.xs }} accessibilityLabel="Advertisement">
+      <RNText style={[T.caption, { color: c.textMuted, letterSpacing: 1, fontSize: 10 }]}>ADVERTISEMENT</RNText>
+      <BannerAd unitId={AD_UNIT} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} requestOptions={{ requestNonPersonalizedAdsOnly: true }} />
     </View>
   );
 }

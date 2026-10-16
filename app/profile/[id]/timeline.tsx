@@ -4,7 +4,7 @@ import { ScrollView, View } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { useBundle } from '../../../src/features/useBundle';
 import { useTheme } from '../../../src/design/theme';
-import { Button, Card, EmptyState, Text } from '../../../src/design/components';
+import { Button, Card, EmptyState, Text, BannerAdSlot } from '../../../src/design/components';
 import { BottomTabs } from '../../../src/features/BottomTabs';
 import { layout, space } from '../../../src/design/tokens';
 
@@ -55,6 +55,7 @@ export default function Timeline() {
           ))
         )}
       </ScrollView>
+      <BannerAdSlot />
       <BottomTabs id={id!} active="timeline" />
     </View>
   );
