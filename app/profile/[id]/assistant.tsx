@@ -2,7 +2,7 @@
 // rules-based triage engine; emergencies are detected in code on every message and end
 // the questioning with a call-now message. History-aware (allergies, current medicines,
 // earlier episodes). Every finished check is saved to the profile's history.
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../../src/design/theme';
@@ -23,7 +23,7 @@ interface Bubble {
 }
 
 export default function Assistant() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, q } = useLocalSearchParams<{ id: string; q?: string }>();
   const { c } = useTheme();
   const { profile, data, reload } = useCare(id);
   useFocusEffect(useCallback(() => { reload(); }, [reload]));
@@ -59,7 +59,7 @@ export default function Assistant() {
       setState(r.state);
       setBubbles((b) => [...b, ...r.messages.map((m) => ({ role: 'assistant' as const, msg: m }))]);
       // Save once the check has an outcome (emergencies included).
-      if (r.state.done && !savedId && id) {
+      if (r.state.done && !r.state.stopped && !savedId && id) {
         const summary = r.state.disposition === 'emergency' ? r.messages.map((m) => m.text).join('\n') : computeSummaryText(r.state, ctx);
         setSavedId(await saveAssessment(id, r.state, summary));
       }
@@ -68,6 +68,15 @@ export default function Assistant() {
       setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 50);
     }
   };
+
+  // Opened from Ask with the person's own words: answer them straight away.
+  const sentOpening = useRef(false);
+  useEffect(() => {
+    if (q && profile && data && !sentOpening.current) {
+      sentOpening.current = true;
+      send(q);
+    }
+  }, [q, profile, data]); // once, when the profile has loaded
 
   const restart = () => {
     const s = startTriage({ ...ctx, now: new Date() });

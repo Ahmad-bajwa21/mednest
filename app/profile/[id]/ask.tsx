@@ -9,6 +9,7 @@ import { useBundle } from '../../../src/features/useBundle';
 import { askCare, type AskContext } from '../../../src/domain/askCare';
 import { useCare } from '../../../src/features/useCare';
 import { planEnrichment, runEnrichment } from '../../../src/ai/online/enrich';
+import { classifyMessage, conversationalReply } from '../../../src/ai/conversation';
 import { useTheme } from '../../../src/design/theme';
 import { Button, Card, Chip, Disclaimer, Text } from '../../../src/design/components';
 import { BottomTabs } from '../../../src/features/BottomTabs';
@@ -28,6 +29,21 @@ export default function Ask() {
 
   const submit = (text: string) => {
     if (!text.trim() || !bundle || !data || !profile) return;
+    // Conversation first: a described symptom opens the symptom check with this message;
+    // greetings, thanks, "who are you", feedback get a natural reply.
+    const intent = classifyMessage(text);
+    if (intent === 'symptom') {
+      setLog((l) => [...l, { role: 'user', text }, { role: 'bot', text: 'I’m sorry you’re not feeling well. Let’s go through a few quick questions so I can tell you how soon to get care.' }]);
+      setInput('');
+      router.push(`/profile/${id}/assistant?q=${encodeURIComponent(text)}`);
+      return;
+    }
+    const small = intent === 'unclear' ? null : conversationalReply(intent, 'records', log.length);
+    if (small) {
+      setLog((l) => [...l, { role: 'user', text }, { role: 'bot', text: small }]);
+      setInput('');
+      return;
+    }
     const res = askCare(text, {
       profileName: profile.name,
       allergies: profile.allergies,

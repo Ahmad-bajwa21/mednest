@@ -290,6 +290,135 @@ function isSkip(input) {
   return /^(skip|pass|don'?t know|do not know|not sure|no idea|i'?m not sure|pata nahi|maloom nahi)\b/i.test(input.trim());
 }
 
+// src/ai/conversation.ts
+var norm = (s) => ` ${s.toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z0-9'\s?]/g, " ").replace(/\s+/g, " ").trim()} `;
+var SHORTHAND = [
+  [/\bwru\b/g, "who are you"],
+  [/\bwbu\b/g, "what about you"],
+  [/\bhru\b/g, "how are you"],
+  [/\bhw r u\b/g, "how are you"],
+  [/\br u\b/g, "are you"],
+  [/\bu r\b/g, "you are"],
+  [/\bur\b/g, "your"],
+  [/\bu\b/g, "you"],
+  [/\by\b/g, "why"],
+  [/\bpls\b|\bplz\b/g, "please"],
+  [/\bthx\b|\bty\b|\btnx\b/g, "thanks"],
+  [/\bidk\b/g, "i don't know"],
+  [/\bnvm\b/g, "never mind"],
+  [/\bim\b/g, "i'm"],
+  [/\bdont\b/g, "don't"],
+  [/\bcant\b/g, "can't"]
+];
+function expandShorthand(text) {
+  let t = norm(text);
+  for (const [re, w] of SHORTHAND)
+    t = t.replace(re, w);
+  return t.replace(/\s+/g, " ");
+}
+var SYMPTOM_WORDS = /\b(pain|painful|ache|aches|aching|hurts?|hurting|sore|fever|temperature|cough|coughing|cold|flu|vomit\w*|throwing up|nause\w*|diarrh\w*|loose motions?|constipat\w*|dizz\w*|faint\w*|headaches?|migraines?|rash(es)?|itch\w*|swell\w*|swollen|bleed\w*|blood|burn\w*|cramps?|tired|fatigue|weak\w*|numb\w*|breath\w*|wheez\w*|sneez\w*|runny|blocked nose|chills|sweat\w*|infection|injur\w*|sprain|bruise|lump|stiff|insomnia|can't sleep|anxious|anxiety|panic|depress\w*|unwell|sick|ill|dard|bukhar|khansi|ulti|dast|chakkar|kamzori|zukam|nazla)\b/;
+var BODY_PARTS = /\b(stomach|tummy|belly|abdomen|head|chest|back|neck|throat|ear|ears|eye|eyes|nose|tooth|teeth|knee|leg|legs|arm|arms|hand|foot|feet|joint|joints|skin|heart|kidney|side|shoulder|hip|pet|sar|seena|kamar|gala)\b/;
+var I_HAVE = /\b(i have|i've got|i got|i am having|i'm having|i've been having|i feel|i'm feeling|i am feeling|i keep|my \w+ (hurts?|is hurting|aches|is aching|is sore|is swollen|is bleeding)|mujhe|mera|meri|mere)\b/;
+function isSymptomStatement(text) {
+  const t = expandShorthand(text);
+  if (/\b(you|your)\b/.test(t) && !/\bmy\b/.test(t))
+    return false;
+  const symptom = SYMPTOM_WORDS.test(t) || BODY_PARTS.test(t) && /\b(pain|hurts?|ache|sore|problem|issue|dard)\b/.test(t);
+  if (!symptom)
+    return false;
+  if (/^\s*(what|whats|what's|why|how|which|tell me about|explain|define)\b/.test(t) && !I_HAVE.test(t))
+    return false;
+  return I_HAVE.test(t) || t.trim().split(" ").length <= 6;
+}
+function classifyMessage(text) {
+  const t = expandShorthand(text);
+  const words2 = t.trim().split(" ").filter(Boolean);
+  if (!words2.length)
+    return "unclear";
+  if (/\b(stop|cancel|quit|exit|end this|leave it|never mind|forget it|bas karo|chhoro)\b/.test(t) && words2.length <= 6)
+    return "stop";
+  if (/\b(start (over|again)|restart|new check|begin again|reset)\b/.test(t))
+    return "restart";
+  if (/\bwhy (are|do) you (ask|need|want)|why (this|that) question|why does (it|that) matter|why do you need to know|what does (that|this) have to do\b/.test(t))
+    return "why_ask";
+  if (/\b(not (a )?(good|great|helpful|smart|useful)|useless|stupid|dumb|bad (ai|bot|app)|terrible|worst|you suck|not working|doesn't work|don't understand me|you don't understand|robotic|annoying|waste of time|bekar|bakwas)\b/.test(t) && /\b(you|your|this|it|ai|bot|app|chat)\b/.test(t))
+    return "complaint";
+  if (isSymptomStatement(text))
+    return "symptom";
+  if (/\b(who are you|what are you|are you (a |an )?(bot|robot|ai|human|real|doctor|person)|your name|who made you|who built you|ap kon|aap kaun|tum kaun)\b/.test(t))
+    return "identity";
+  if (/\b(what can you do|how (can|do) you help|what do you do|help me|how does this work|how to use)\b/.test(t) || /^\s*help\s*$/.test(t))
+    return "capabilities";
+  if (/\b(how are you|how're you|how r you|how are things|how is it going|how's it going|what about you|kaise ho|kya haal)\b/.test(t))
+    return "how_are_you";
+  if (/^\s*(hi+|hello+|hey+|hiya|yo|salam|salaam|assalam\w*|aoa|good (morning|afternoon|evening))\b/.test(t) && words2.length <= 5)
+    return "greeting";
+  if (/\b(thanks|thank you|thankyou|shukriya|jazakallah\w*|appreciate it)\b/.test(t))
+    return "thanks";
+  if (/\b(good (job|bot|ai)|great|awesome|nice|helpful|well done|love it|perfect|amazing)\b/.test(t) && words2.length <= 8)
+    return "praise";
+  if (/^\s*(bye|goodbye|good bye|see you|cya|khuda hafiz|allah hafiz|take care)\b/.test(t))
+    return "bye";
+  if (/^\s*(what|huh|eh|sorry|i don't understand|didn't get (it|that)|what do you mean|matlab)\s*\??\s*$/.test(t))
+    return "confused";
+  if (/^\s*(ok|okay|k|kk|hmm+|mm+|fine|alright|cool|sure|got it|oh|ah|acha|achha|theek)\s*$/.test(t))
+    return "ack";
+  if (/[?]|^\s*(what|why|how|when|which|who|where|is|are|can|could|do|does|should|will|tell|explain|list|show)\b/.test(t) || words2.length >= 3)
+    return "question";
+  return "unclear";
+}
+function pick(options, seed) {
+  return options[Math.abs(seed) % options.length];
+}
+var SCOPE_HELP = {
+  records: "I can answer questions about your saved records \u2014 your medicines (what they\u2019re for, when to take them, for how long), results, follow-ups and allergies \u2014 and look medicines up in trusted medical sources. If you\u2019re feeling unwell, just tell me what\u2019s going on and I\u2019ll ask a few questions.",
+  symptom: "Tell me what\u2019s bothering you in your own words \u2014 for example \u201CI\u2019ve had stomach pain since yesterday\u201D \u2014 and I\u2019ll ask a few short questions, then tell you how soon to get care and what to watch for.",
+  general: "Ask me about a condition or a medicine \u2014 for example \u201Cwhat is gout?\u201D or \u201Cwhat is warfarin used for?\u201D \u2014 and I\u2019ll look it up in trusted sources like MedlinePlus and the FDA, with links. If you\u2019re feeling unwell, tell me what\u2019s going on."
+};
+function conversationalReply(intent, scope, seed = 0, name) {
+  const hi = name ? `, ${name}` : "";
+  switch (intent) {
+    case "greeting":
+      return pick([`Hello${hi}! How can I help today?`, `Hi${hi} \u2014 good to see you. What would you like to know?`, `Assalam o alaikum${hi}! How are you feeling today?`], seed) + " " + (scope === "symptom" ? "If something is bothering you, tell me about it in your own words." : "");
+    case "how_are_you":
+      return pick(["I\u2019m doing well, thanks for asking! More importantly \u2014 how are you feeling?", "All good on my side, thank you. How about you \u2014 anything bothering you today?"], seed);
+    case "identity":
+      return `I\u2019m MedNest\u2019s health assistant \u2014 a computer program, not a person and not a doctor. ${scope === "records" ? "I work from your saved records and trusted medical sources." : scope === "symptom" ? "I ask questions based on clinical rules to help you decide how soon to get care." : "I look things up in trusted medical sources and show you the links."} I can\u2019t diagnose, but I can help you understand and organise things. What can I help with?`;
+    case "capabilities":
+      return SCOPE_HELP[scope];
+    case "thanks":
+      return pick(["You\u2019re welcome! Is there anything else I can help with?", "Happy to help. Take care \u2014 and ask me anytime.", "Anytime! Let me know if anything else comes up."], seed);
+    case "praise":
+      return pick(["Thank you, that\u2019s kind! What else can I help with?", "Glad it helped! Anything else?"], seed);
+    case "complaint":
+      return `I\u2019m sorry \u2014 it sounds like I haven\u2019t been helpful, and that\u2019s frustrating. I\u2019m a fairly simple assistant: I work best with short, specific messages. ${SCOPE_HELP[scope]} You can also tell me what I got wrong and I\u2019ll try again.`;
+    case "bye":
+      return pick(["Take care! Come back anytime.", "Goodbye \u2014 I hope you feel well.", "Allah hafiz! Look after yourself."], seed);
+    case "ack":
+      return pick(["Okay. Anything else you\u2019d like to know?", "Alright \u2014 I\u2019m here if you need anything else."], seed);
+    case "confused":
+      return `Sorry, let me be clearer. ${SCOPE_HELP[scope]}`;
+    case "unclear":
+      return `I\u2019m not sure I understood that. ${SCOPE_HELP[scope]}`;
+    default:
+      return null;
+  }
+}
+function acknowledgement(seed) {
+  return pick(["Got it.", "Thanks.", "Okay, thank you.", "Thanks \u2014 that helps.", "Understood.", "Okay."], seed);
+}
+function empathyLine(label, seed) {
+  const what = label.toLowerCase();
+  return pick(
+    [
+      `I\u2019m sorry you\u2019re dealing with ${what}. I\u2019ll ask a few quick questions so I can guide you \u2014 answer in your own words or tap an option.`,
+      `That sounds uncomfortable \u2014 let\u2019s figure out how soon you should get it checked. A few quick questions about the ${what}:`,
+      `Thanks for telling me. I\u2019ll ask a few short questions about the ${what} \u2014 you can type freely or tap an option.`
+    ],
+    seed
+  );
+}
+
 // src/ai/triage/protocols.ts
 var PROTOCOL_VERSION = "protocols-0.2-draft";
 var hoursOf = (a, id) => {
@@ -891,6 +1020,41 @@ async function respond(prev, text, ctx, interpret) {
     messages.push(say(state, ctx, { kind: "info", text: "This assessment is complete. Start a new check if you have a different problem." }));
     return { state, messages };
   }
+  const intent = classifyMessage(input);
+  const pending = state.pendingSlot ? currentProtocol(state).slots.find((s) => s.id === state.pendingSlot) : void 0;
+  const seed = state.transcript.length;
+  if (intent === "stop") {
+    state.done = true;
+    state.stopped = true;
+    state.pendingSlot = null;
+    messages.push(say(state, ctx, { kind: "info", text: `Okay, we\u2019ll stop here \u2014 this check won\u2019t be saved as an assessment. If you start to feel worse or notice any warning sign, call ${EMERGENCY_NUMBER} or see a doctor. You can start a new check anytime.` }));
+    return { state, messages };
+  }
+  if (intent === "restart") {
+    const fresh = startTriage(ctx);
+    fresh.state.transcript = [...state.transcript];
+    return { state: fresh.state, messages: [say(fresh.state, ctx, { kind: "info", text: `Sure, let\u2019s start again. ${START_PROMPT}` })] };
+  }
+  if (intent === "why_ask" && pending) {
+    messages.push(say(state, ctx, { kind: "info", text: `${whyWeAsk(pending)} If you\u2019re not sure, just say \u201Cnot sure\u201D.` }));
+    messages.push(say(state, ctx, questionFor(pending, state, ctx)));
+    return { state, messages };
+  }
+  if (intent === "complaint") {
+    messages.push(
+      say(state, ctx, {
+        kind: "info",
+        text: pending ? "I\u2019m sorry \u2014 I know these questions can feel robotic. Each one helps me work out how urgent this is, and there are only a few left. Answer in your own words, or say \u201Cnot sure\u201D to skip." : conversationalReply("complaint", "symptom", seed)
+      })
+    );
+    if (pending)
+      messages.push(say(state, ctx, questionFor(pending, state, ctx)));
+    return { state, messages };
+  }
+  if (!state.protocolId && !pending && SMALL_TALK.has(intent) && intent !== "unclear") {
+    messages.push(say(state, ctx, { kind: "info", text: conversationalReply(intent, "symptom", seed) }));
+    return { state, messages };
+  }
   if (MEDICINE_REQUEST.test(input)) {
     messages.push(say(state, ctx, { kind: "info", text: MEDICINE_REPLY }));
     if (state.pendingSlot) {
@@ -902,14 +1066,17 @@ async function respond(prev, text, ctx, interpret) {
     }
     return { state, messages };
   }
+  let justStarted = false;
+  let answeredNow = false;
   if (!state.protocolId) {
     const chosen = PROTOCOLS.find((p) => p.label.toLowerCase() === input.toLowerCase()) ?? matchProtocol(input);
-    if (!chosen && state.complaint === null) {
+    const symptomLike = intent === "symptom" || isSymptomStatement(input);
+    if (!chosen && !symptomLike && state.complaint === null) {
       state.complaint = input;
       messages.push(
         say(state, ctx, {
           kind: "question",
-          text: "Which of these is closest to your main problem?",
+          text: "I\u2019m not sure I understood what\u2019s bothering you. Could you describe it in your own words \u2014 for example \u201CI\u2019ve had stomach pain since yesterday\u201D? Or tap the closest one:",
           quickReplies: PROTOCOLS.map((p) => p.label)
         })
       );
@@ -917,13 +1084,25 @@ async function respond(prev, text, ctx, interpret) {
     }
     const protocol2 = chosen ?? GENERAL_PROTOCOL;
     state.protocolId = protocol2.id;
-    state.complaint = state.complaint ?? input;
+    const tappedOption = PROTOCOLS.some((p) => p.label.toLowerCase() === input.toLowerCase());
+    if (!chosen || tappedOption)
+      state.complaint = state.complaint ?? (chosen ? protocol2.label : input);
+    else
+      state.complaint = input;
     prefillFromText(state, protocol2, state.complaint + " " + (state.complaint === input ? "" : input));
+    justStarted = true;
   } else if (state.pendingSlot) {
     const protocol2 = currentProtocol(state);
     const slot = protocol2.slots.find((s) => s.id === state.pendingSlot);
     if (slot) {
-      const value = await readAnswer(slot, input, interpret);
+      const chatty = SMALL_TALK.has(intent) && intent !== "unclear" && intent !== "ack";
+      const value = chatty ? null : await readAnswer(slot, input, interpret);
+      if (value === null && chatty) {
+        const reply = conversationalReply(intent, "symptom", seed) ?? "";
+        messages.push(say(state, ctx, { kind: "info", text: intent === "identity" || intent === "capabilities" ? `${reply.split(". ")[0]}. Let\u2019s finish these few questions so I can guide you.` : reply.split(/(?<=[.!?])\s/)[0] }));
+        messages.push(say(state, ctx, questionFor(slot, state, ctx)));
+        return { state, messages };
+      }
       if (value === null && state.retries < MAX_RETRIES) {
         state.retries++;
         messages.push(say(state, ctx, { ...questionFor(slot, state, ctx), text: `Sorry, I didn\u2019t quite get that. ${questionFor(slot, state, ctx).text}` }));
@@ -940,6 +1119,7 @@ async function respond(prev, text, ctx, interpret) {
       }
       state.pendingSlot = null;
       state.retries = 0;
+      answeredNow = true;
     }
   }
   const protocol = currentProtocol(state);
@@ -960,7 +1140,10 @@ async function respond(prev, text, ctx, interpret) {
   const next = nextSlot(protocol, state, ctx);
   if (next) {
     state.pendingSlot = next.id;
-    messages.push(say(state, ctx, questionFor(next, state, ctx)));
+    const q = questionFor(next, state, ctx);
+    const label = protocol.id === "general" ? "this" : protocol.label;
+    const prefix = justStarted ? empathyLine(label, seed) : answeredNow ? acknowledgement(seed) : "";
+    messages.push(say(state, ctx, { ...q, text: prefix ? `${prefix} ${q.text}` : q.text }));
     return { state, messages };
   }
   const outcome = computeOutcome(state, ctx);
@@ -968,6 +1151,25 @@ async function respond(prev, text, ctx, interpret) {
   state.disposition = outcome.disposition;
   messages.push(say(state, ctx, { kind: "summary", text: renderOutcome(outcome) }));
   return { state, messages };
+}
+var SMALL_TALK = /* @__PURE__ */ new Set(["greeting", "how_are_you", "identity", "capabilities", "thanks", "praise", "bye", "ack", "confused", "unclear"]);
+function whyWeAsk(slot) {
+  const id = slot.id;
+  if (slot.critical)
+    return `I ask this to rule out ${slot.critical} \u2014 rare, but a sign that needs urgent care.`;
+  const WHY = {
+    onset: "When it started helps tell a new problem from one that has been going on for a while.",
+    severity: "How strong it is helps decide how soon you should be seen.",
+    location: "Where the pain is tells me which warning signs matter most.",
+    pattern: "Whether it is constant or comes and goes changes how urgent it may be.",
+    associated: "Other symptoms can change how urgent this is.",
+    food: "Recent food can explain stomach upsets and food poisoning.",
+    previous: "Whether this is new or familiar changes how cautious I should be.",
+    remedies: "Your doctor will want to know what you have already taken.",
+    temperature: "A very high temperature needs quicker care.",
+    drinking: "Not being able to drink can lead to dehydration."
+  };
+  return WHY[id] ?? "It helps me understand how urgent this is.";
 }
 var URGENT_NOTE = "Please arrange to see a doctor today because of";
 function structuredCloneState(s) {
@@ -998,7 +1200,7 @@ function nextSlot(protocol, state, ctx) {
     const partialMulti = a?.kind === "multi" && state.prefilled.includes(s.id) && !a.values.includes("none");
     if (a && !partialMulti)
       return false;
-    if (partialMulti && state.transcript.some((t) => t.role === "assistant" && t.text.startsWith(otherThan(a.labels))))
+    if (partialMulti && state.transcript.some((t) => t.role === "assistant" && t.text.includes(otherThan(a.labels))))
       return false;
     return s.askIf ? s.askIf(state.answers, ctx) : true;
   });
@@ -2595,7 +2797,7 @@ function facts(e) {
   }
   return { positives, negatives, unknown, severity: severity2, onset: onset2, remedies: remedies2, hadBefore };
 }
-var norm = (s) => s.trim().toLowerCase();
+var norm2 = (s) => s.trim().toLowerCase();
 function buildVisitSummary(input) {
   const since = input.since ?? null;
   const inWindow = (iso2) => !since || iso2 >= since;
@@ -2604,7 +2806,7 @@ function buildVisitSummary(input) {
   const timeline = [];
   const byComplaint = /* @__PURE__ */ new Map();
   const get = (complaint, at) => {
-    const key = norm(complaint);
+    const key = norm2(complaint);
     let c = byComplaint.get(key);
     if (!c) {
       c = { complaint, firstReported: at, lastReported: at, onset: null, severities: [], positives: [], negatives: [], remedies: [], hadBefore: null, toClarify: [], latestAdvice: null };
@@ -2767,6 +2969,16 @@ async function getJson(fetchFn, url) {
     return null;
   }
 }
+var GENERIC = /* @__PURE__ */ new Set(["pain", "ache", "aches", "problem", "problems", "disease", "symptom", "symptoms", "issue", "condition", "feeling", "severe", "chronic", "acute", "what", "have"]);
+var MEDICAL = /(disease|disorder|condition|syndrome|infection|inflammat|medication|medicine|drug|symptom|pain|cancer|tumou?r|vitamin|hormone|virus|viral|bacteri|chronic|medical|clinical|organ|tissue|gland|treatment|therapy|injury|allergy|allergic|deficiency|blood|heart|lung|kidney|liver|skin|nerve|brain|bone|muscle|joint)w*/i;
+function relevant(query, title2) {
+  const stem = (w) => w.slice(0, 5);
+  const words2 = query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !GENERIC.has(w));
+  if (!words2.length)
+    return false;
+  const t = title2.toLowerCase();
+  return words2.some((w) => t.includes(stem(w)));
+}
 function cleanText(raw, max = 600) {
   if (!raw)
     return null;
@@ -2837,7 +3049,7 @@ async function lookupTopicOnline(term, fetchFn) {
   const rows = Array.isArray(t?.[3]) ? t[3] : [];
   for (const [title2, codes] of rows) {
     const code = String(codes ?? "").split(",")[0]?.trim();
-    if (!code)
+    if (!code || !relevant(term, title2))
       continue;
     const mp = await getJson(fetchFn, `${CONNECT}?mainSearchCriteria.v.cs=2.16.840.1.113883.6.90&mainSearchCriteria.v.c=${enc(code)}&knowledgeResponseType=application/json`);
     const e = mp?.feed?.entry?.[0];
@@ -2856,9 +3068,11 @@ async function lookupTopicOnline(term, fetchFn) {
 async function wikipediaSummary(term, fetchFn) {
   const s = await getJson(fetchFn, `${WIKI}/w/api.php?action=query&list=search&srsearch=${enc(term)}&srlimit=1&format=json&origin=*`);
   const title2 = s?.query?.search?.[0]?.title;
-  if (!title2)
+  if (!title2 || !relevant(term, title2))
     return { query: term, title: null, summary: null, sources: [] };
   const p = await getJson(fetchFn, `${WIKI}/api/rest_v1/page/summary/${enc(String(title2).replace(/ /g, "_"))}`);
+  if (!MEDICAL.test(`${p?.description ?? ""} ${String(p?.extract ?? "").slice(0, 300)}`))
+    return { query: term, title: null, summary: null, sources: [] };
   const summary = cleanText(p?.extract, 600);
   return summary ? { query: term, title: title2, summary, sources: [{ name: "Wikipedia (general encyclopedia \u2014 less authoritative)", url: p?.content_urls?.desktop?.page ?? `${WIKI}/wiki/${enc(title2)}` }] } : { query: term, title: null, summary: null, sources: [] };
 }
@@ -2901,6 +3115,9 @@ function topicOf(question) {
   return t.length >= 3 && t.split(" ").length <= 4 ? t : null;
 }
 function planEnrichment(question, answer, meds, ctx) {
+  const kind = classifyMessage(question);
+  if (kind !== "question" && kind !== "unclear")
+    return null;
   const q = ` ${question.toLowerCase()} `;
   const wantsInfo = /\b(what|why|for|about|side ?effects?|warnings?|interact\w*|safe|tell|explain|use|used|kya)\b/.test(q);
   const otherGenerics = [...new Set(meds.map((m) => identifyMedicine(m.name)?.generic).filter((g) => !!g))];
@@ -2955,7 +3172,9 @@ export {
   askCare,
   buildDoseAlarms,
   buildVisitSummary,
+  classifyMessage,
   computeOutcome,
+  conversationalReply,
   deriveStatus,
   detectRedFlags,
   dispositionHeading,
@@ -2965,6 +3184,7 @@ export {
   formatTime,
   historyEntries,
   identifyMedicine,
+  isSymptomStatement,
   localDateIso,
   lookupMedicineOnline,
   lookupTopicOnline,

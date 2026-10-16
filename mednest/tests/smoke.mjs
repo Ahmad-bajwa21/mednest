@@ -6,7 +6,7 @@ const PID = 'p1', D1 = 'd1', D2 = 'd2', D3 = 'd3';
 const seed = {
   profiles: [{ id: PID, name: 'Ammi', relation: 'Mother', birthYear: '1962', sex: 'F', bloodGroup: 'O+', allergies: 'penicillin', color: '#0F766E', createdAt: '2026-01-01' }],
   documents: [
-    { id: D1, profileId: PID, type: 'Lab report', docDate: '2026-03-01', doctor: 'Dr. Khan', followUp: '2026-10-15' },
+    { id: D1, profileId: PID, type: 'Lab report', docDate: '2026-03-01', doctor: 'Dr. Khan', followUp: new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10) },
     { id: D2, profileId: PID, type: 'Lab report', docDate: '2026-06-01', doctor: 'Dr. Khan' },
     { id: D3, profileId: PID, type: 'Prescription', docDate: '2026-09-01', doctor: 'Dr. Ali' },
   ],

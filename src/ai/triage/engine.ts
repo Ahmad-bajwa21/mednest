@@ -12,6 +12,7 @@
 // not read onto the slot's ALLOWED options — it can never add values or advice.
 import { detectRedFlags, highestLevel, sortFlags, EMERGENCY_MESSAGE, EMERGENCY_NUMBER, SELF_HARM_MESSAGE, type FlagLevel, type RedFlag } from './redFlags';
 import { isSkip, parseChoice, parseDuration, parseMulti, parseSeverity, parseYesNo } from './parse';
+import { acknowledgement, classifyMessage, conversationalReply, empathyLine, isSymptomStatement, type ConvIntent } from '../conversation';
 import {
   GENERAL_PROTOCOL,
   PROTOCOL_VERSION,
@@ -55,6 +56,8 @@ export interface TriageState {
   textFlags?: RedFlag[];
   done: boolean;
   disposition: Disposition | null;
+  /** The person chose to stop before an outcome (nothing to save). */
+  stopped?: boolean;
   transcript: Turn[];
 }
 
@@ -139,7 +142,46 @@ export async function respond(
     return { state, messages };
   }
 
-  // 2. Medicine/dose requests get a fixed reply; the current question is repeated.
+  // 2. Conversation before forms: stop, start over, "why are you asking?", complaints
+  //    and small talk get a human reply instead of being forced into the questions.
+  const intent = classifyMessage(input);
+  const pending = state.pendingSlot ? currentProtocol(state).slots.find((s) => s.id === state.pendingSlot) : undefined;
+  const seed = state.transcript.length;
+  if (intent === 'stop') {
+    state.done = true;
+    state.stopped = true;
+    state.pendingSlot = null;
+    messages.push(say(state, ctx, { kind: 'info', text: `Okay, we’ll stop here — this check won’t be saved as an assessment. If you start to feel worse or notice any warning sign, call ${EMERGENCY_NUMBER} or see a doctor. You can start a new check anytime.` }));
+    return { state, messages };
+  }
+  if (intent === 'restart') {
+    const fresh = startTriage(ctx);
+    fresh.state.transcript = [...state.transcript];
+    return { state: fresh.state, messages: [say(fresh.state, ctx, { kind: 'info', text: `Sure, let’s start again. ${START_PROMPT}` })] };
+  }
+  if (intent === 'why_ask' && pending) {
+    messages.push(say(state, ctx, { kind: 'info', text: `${whyWeAsk(pending)} If you’re not sure, just say “not sure”.` }));
+    messages.push(say(state, ctx, questionFor(pending, state, ctx)));
+    return { state, messages };
+  }
+  if (intent === 'complaint') {
+    messages.push(
+      say(state, ctx, {
+        kind: 'info',
+        text: pending
+          ? 'I’m sorry — I know these questions can feel robotic. Each one helps me work out how urgent this is, and there are only a few left. Answer in your own words, or say “not sure” to skip.'
+          : conversationalReply('complaint', 'symptom', seed)!,
+      }),
+    );
+    if (pending) messages.push(say(state, ctx, questionFor(pending, state, ctx)));
+    return { state, messages };
+  }
+  if (!state.protocolId && !pending && SMALL_TALK.has(intent) && intent !== 'unclear') {
+    messages.push(say(state, ctx, { kind: 'info', text: conversationalReply(intent, 'symptom', seed)! }));
+    return { state, messages };
+  }
+
+  // 3. Medicine/dose requests get a fixed reply; the current question is repeated.
   if (MEDICINE_REQUEST.test(input)) {
     messages.push(say(state, ctx, { kind: 'info', text: MEDICINE_REPLY }));
     if (state.pendingSlot) {
@@ -151,15 +193,19 @@ export async function respond(
     return { state, messages };
   }
 
-  // 3. Choose the protocol from the opening complaint.
+  // 4. Choose the protocol from the opening complaint. A symptom we have no specific
+  //    questions for goes straight to the general questions — no forced category list.
+  let justStarted = false;
+  let answeredNow = false;
   if (!state.protocolId) {
     const chosen = PROTOCOLS.find((p) => p.label.toLowerCase() === input.toLowerCase()) ?? matchProtocol(input);
-    if (!chosen && state.complaint === null) {
+    const symptomLike = intent === 'symptom' || isSymptomStatement(input);
+    if (!chosen && !symptomLike && state.complaint === null) {
       state.complaint = input;
       messages.push(
         say(state, ctx, {
           kind: 'question',
-          text: 'Which of these is closest to your main problem?',
+          text: 'I’m not sure I understood what’s bothering you. Could you describe it in your own words — for example “I’ve had stomach pain since yesterday”? Or tap the closest one:',
           quickReplies: PROTOCOLS.map((p) => p.label),
         }),
       );
@@ -167,14 +213,27 @@ export async function respond(
     }
     const protocol = chosen ?? GENERAL_PROTOCOL;
     state.protocolId = protocol.id;
-    state.complaint = state.complaint ?? input;
+    // Keep the person's own words as the complaint. A tapped option ("Headache",
+    // "Something else") keeps what they typed earlier, if anything.
+    const tappedOption = PROTOCOLS.some((p) => p.label.toLowerCase() === input.toLowerCase());
+    if (!chosen || tappedOption) state.complaint = state.complaint ?? (chosen ? protocol.label : input);
+    else state.complaint = input;
     prefillFromText(state, protocol, state.complaint + ' ' + (state.complaint === input ? '' : input));
+    justStarted = true;
   } else if (state.pendingSlot) {
     // 4. Answer to the pending question.
     const protocol = currentProtocol(state);
     const slot = protocol.slots.find((s) => s.id === state.pendingSlot);
     if (slot) {
-      const value = await readAnswer(slot, input, interpret);
+      // "hi", "thanks", "who are you" etc. are not answers (even to free-text questions).
+      const chatty = SMALL_TALK.has(intent) && intent !== 'unclear' && intent !== 'ack';
+      const value = chatty ? null : await readAnswer(slot, input, interpret);
+      if (value === null && chatty) {
+        const reply = conversationalReply(intent, 'symptom', seed) ?? '';
+        messages.push(say(state, ctx, { kind: 'info', text: intent === 'identity' || intent === 'capabilities' ? `${reply.split('. ')[0]}. Let’s finish these few questions so I can guide you.` : reply.split(/(?<=[.!?])\s/)[0]! }));
+        messages.push(say(state, ctx, questionFor(slot, state, ctx)));
+        return { state, messages };
+      }
       if (value === null && state.retries < MAX_RETRIES) {
         state.retries++;
         messages.push(say(state, ctx, { ...questionFor(slot, state, ctx), text: `Sorry, I didn’t quite get that. ${questionFor(slot, state, ctx).text}` }));
@@ -193,6 +252,7 @@ export async function respond(
       }
       state.pendingSlot = null;
       state.retries = 0;
+      answeredNow = true;
     }
   }
 
@@ -222,7 +282,11 @@ export async function respond(
   const next = nextSlot(protocol, state, ctx);
   if (next) {
     state.pendingSlot = next.id;
-    messages.push(say(state, ctx, questionFor(next, state, ctx)));
+    // Read like a conversation: empathy when we start, a short thanks after each answer.
+    const q = questionFor(next, state, ctx);
+    const label = protocol.id === 'general' ? 'this' : protocol.label;
+    const prefix = justStarted ? empathyLine(label, seed) : answeredNow ? acknowledgement(seed) : '';
+    messages.push(say(state, ctx, { ...q, text: prefix ? `${prefix} ${q.text}` : q.text }));
     return { state, messages };
   }
   const outcome = computeOutcome(state, ctx);
@@ -230,6 +294,27 @@ export async function respond(
   state.disposition = outcome.disposition;
   messages.push(say(state, ctx, { kind: 'summary', text: renderOutcome(outcome) }));
   return { state, messages };
+}
+
+const SMALL_TALK = new Set<ConvIntent>(['greeting', 'how_are_you', 'identity', 'capabilities', 'thanks', 'praise', 'bye', 'ack', 'confused', 'unclear']);
+
+/** Why a question matters, in plain words, for "why are you asking?". */
+function whyWeAsk(slot: Slot): string {
+  const id = slot.id;
+  if (slot.critical) return `I ask this to rule out ${slot.critical} — rare, but a sign that needs urgent care.`;
+  const WHY: Record<string, string> = {
+    onset: 'When it started helps tell a new problem from one that has been going on for a while.',
+    severity: 'How strong it is helps decide how soon you should be seen.',
+    location: 'Where the pain is tells me which warning signs matter most.',
+    pattern: 'Whether it is constant or comes and goes changes how urgent it may be.',
+    associated: 'Other symptoms can change how urgent this is.',
+    food: 'Recent food can explain stomach upsets and food poisoning.',
+    previous: 'Whether this is new or familiar changes how cautious I should be.',
+    remedies: 'Your doctor will want to know what you have already taken.',
+    temperature: 'A very high temperature needs quicker care.',
+    drinking: 'Not being able to drink can lead to dehydration.',
+  };
+  return WHY[id] ?? 'It helps me understand how urgent this is.';
 }
 
 const URGENT_NOTE = 'Please arrange to see a doctor today because of';
@@ -263,7 +348,7 @@ function nextSlot(protocol: Protocol, state: TriageState, ctx: TriageContext): S
     const a = state.answers[s.id];
     const partialMulti = a?.kind === 'multi' && state.prefilled.includes(s.id) && !a.values.includes('none');
     if (a && !partialMulti) return false;
-    if (partialMulti && state.transcript.some((t) => t.role === 'assistant' && t.text.startsWith(otherThan(a.labels)))) return false;
+    if (partialMulti && state.transcript.some((t) => t.role === 'assistant' && t.text.includes(otherThan(a.labels)))) return false;
     return s.askIf ? s.askIf(state.answers, ctx) : true;
   });
 }

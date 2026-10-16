@@ -37,3 +37,9 @@ describe('when to look things up online', () => {
     expect(planEnrichment('next follow-up?', 'Next follow-up: 21 Oct', meds, {})).toBeNull();
   });
 });
+
+describe('conversation is never searched online', () => {
+  it.each(['I have stomach pain', 'so wru', 'I feel you are not a good AI', 'thanks', 'hi'])('%s → no lookup', (q) => {
+    expect(planEnrichment(q, 'I couldn’t find an answer to that', meds, {})).toBeNull();
+  });
+});

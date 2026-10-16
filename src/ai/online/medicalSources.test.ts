@@ -1,4 +1,4 @@
-import { cleanText, lookupMedicineOnline, lookupTopicOnline, renderDrugInfo, type FetchFn } from './medicalSources';
+import { cleanText, lookupMedicineOnline, lookupTopicOnline, relevant, renderDrugInfo, type FetchFn } from './medicalSources';
 
 // Minimal fake of the public APIs, keyed by URL fragment.
 function fakeFetch(routes: Record<string, unknown>): { fetch: FetchFn; calls: string[] } {
@@ -86,5 +86,23 @@ describe('source text cleanup', () => {
   it('keeps list items apart and strips FDA cross-references', () => {
     expect(cleanText('<p>Used to:</p><ul><li>prevent clots</li><li>protect valves</li></ul>')).toBe('Used to: prevent clots; protect valves');
     expect(cleanText('Can cause bleeding [see Warnings and Precautions ( 5.1 )] . Monitor INR ( 2.1 ).')).toBe('Can cause bleeding. Monitor INR.');
+  });
+});
+
+describe('relevance of online results', () => {
+  it('requires a meaningful shared word', () => {
+    expect(relevant('stomach pain', 'Infantile colic')).toBe(false);
+    expect(relevant('stomach pain', 'Stomach ache')).toBe(true);
+    expect(relevant('gout', 'Gout')).toBe(true);
+    expect(relevant('pain', 'Pain in babies')).toBe(false); // generic word alone is not enough
+  });
+
+  it('never returns a non-medical Wikipedia article', async () => {
+    const { fetch } = fakeFetch({
+      'list=search&srsearch=wru': { query: { search: [{ title: 'Welsh Rugby Union' }] } },
+      'page/summary/Welsh_Rugby_Union': { description: 'Governing body for rugby union in Wales', extract: 'The Welsh Rugby Union is the governing body for rugby union in Wales.' },
+    });
+    const t = await lookupTopicOnline('wru', fetch);
+    expect(t.summary).toBeNull();
   });
 });

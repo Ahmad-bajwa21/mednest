@@ -29,3 +29,4 @@ export { identifyMedicine } from '../ai/medicineInfo';
 export { buildVisitSummary, renderVisitSummaryText } from '../domain/visitSummary';
 export { lookupMedicineOnline, lookupTopicOnline, renderDrugInfo, renderTopicInfo } from '../ai/online/medicalSources';
 export { planEnrichment, runEnrichment, topicOf } from '../ai/online/enrich';
+export { classifyMessage, conversationalReply, isSymptomStatement } from '../ai/conversation';

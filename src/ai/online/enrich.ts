@@ -4,6 +4,7 @@
 // the patient's other medicines to check in the FDA label's interaction section); only
 // medicine names / topic words are sent to the public services.
 import { identifyMedicine } from '../medicineInfo';
+import { classifyMessage } from '../conversation';
 import { lookupMedicineOnline, lookupTopicOnline, renderDrugInfo, renderTopicInfo, type FetchFn } from './medicalSources';
 
 export type EnrichPlan =
@@ -30,6 +31,9 @@ export function planEnrichment(
   meds: MedLike[],
   ctx: { lastMedicineId?: string | null; replyMedicineId?: string | null },
 ): EnrichPlan {
+  // Symptoms, small talk and feedback are conversation, not something to search for.
+  const kind = classifyMessage(question);
+  if (kind !== 'question' && kind !== 'unclear') return null;
   const q = ` ${question.toLowerCase()} `;
   const wantsInfo = /\b(what|why|for|about|side ?effects?|warnings?|interact\w*|safe|tell|explain|use|used|kya)\b/.test(q);
   const otherGenerics = [...new Set(meds.map((m) => identifyMedicine(m.name)?.generic).filter((g): g is string => !!g))];

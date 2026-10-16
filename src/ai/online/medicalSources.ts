@@ -54,6 +54,18 @@ async function getJson(fetchFn: FetchFn, url: string): Promise<any> {
   }
 }
 
+const GENERIC = new Set(['pain', 'ache', 'aches', 'problem', 'problems', 'disease', 'symptom', 'symptoms', 'issue', 'condition', 'feeling', 'severe', 'chronic', 'acute', 'what', 'have']);
+const MEDICAL = /(disease|disorder|condition|syndrome|infection|inflammat|medication|medicine|drug|symptom|pain|cancer|tumou?r|vitamin|hormone|virus|viral|bacteri|chronic|medical|clinical|organ|tissue|gland|treatment|therapy|injury|allergy|allergic|deficiency|blood|heart|lung|kidney|liver|skin|nerve|brain|bone|muscle|joint)w*/i;
+
+/** Does a result title share a meaningful word with what was asked? */
+export function relevant(query: string, title: string): boolean {
+  const stem = (w: string) => w.slice(0, 5);
+  const words = query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !GENERIC.has(w));
+  if (!words.length) return false;
+  const t = title.toLowerCase();
+  return words.some((w) => t.includes(stem(w)));
+}
+
 /** Plain text from HTML-ish source text, trimmed to whole sentences within `max`. */
 export function cleanText(raw: string | null | undefined, max = 600): string | null {
   if (!raw) return null;
@@ -137,7 +149,7 @@ export async function lookupTopicOnline(term: string, fetchFn: FetchFn): Promise
   const rows: Array<[string, string]> = Array.isArray(t?.[3]) ? t[3] : [];
   for (const [title, codes] of rows) {
     const code = String(codes ?? '').split(',')[0]?.trim();
-    if (!code) continue;
+    if (!code || !relevant(term, title)) continue; // e.g. "stomach pain" must not become an infant topic
     const mp = await getJson(fetchFn, `${CONNECT}?mainSearchCriteria.v.cs=2.16.840.1.113883.6.90&mainSearchCriteria.v.c=${enc(code)}&knowledgeResponseType=application/json`);
     const e = mp?.feed?.entry?.[0];
     if (e?.summary?._value) {
@@ -156,8 +168,10 @@ export async function lookupTopicOnline(term: string, fetchFn: FetchFn): Promise
 export async function wikipediaSummary(term: string, fetchFn: FetchFn): Promise<OnlineTopicInfo> {
   const s = await getJson(fetchFn, `${WIKI}/w/api.php?action=query&list=search&srsearch=${enc(term)}&srlimit=1&format=json&origin=*`);
   const title = s?.query?.search?.[0]?.title;
-  if (!title) return { query: term, title: null, summary: null, sources: [] };
+  if (!title || !relevant(term, title)) return { query: term, title: null, summary: null, sources: [] };
   const p = await getJson(fetchFn, `${WIKI}/api/rest_v1/page/summary/${enc(String(title).replace(/ /g, '_'))}`);
+  // Only medical articles ("so wru" must never return the Welsh Rugby Union).
+  if (!MEDICAL.test(`${p?.description ?? ''} ${String(p?.extract ?? '').slice(0, 300)}`)) return { query: term, title: null, summary: null, sources: [] };
   const summary = cleanText(p?.extract, 600);
   return summary
     ? { query: term, title, summary, sources: [{ name: 'Wikipedia (general encyclopedia — less authoritative)', url: p?.content_urls?.desktop?.page ?? `${WIKI}/wiki/${enc(title)}` }] }

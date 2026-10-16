@@ -862,7 +862,7 @@ function renderAssistant(id) {
     t.state = r.state;
     t.bubbles.push(...r.messages.map((m) => ({ role: 'assistant', msg: m })));
     t.busy = false;
-    if (r.state.done && !t.savedId) t.savedId = saveAssessment(id, r.state, r.messages);
+    if (r.state.done && !r.state.stopped && !t.savedId) t.savedId = saveAssessment(id, r.state, r.messages);
     renderAssistant(id);
     window.scrollTo(0, document.body.scrollHeight);
     $('#tri-input')?.focus();
@@ -1093,20 +1093,53 @@ function renderAsk(id) {
   const chips = ['What medicines am I taking, and why?', 'When do I take them?', 'Next follow-up?', 'Last sugar test?'];
   const logHtml = chat.log.map((m) => m.role === 'user'
     ? `<div class="card bubble-user"><div class="who-label">${icon('user', 14)} You</div>${esc(m.text)}</div>`
-    : m.online
+    : m.triage
+      ? chatTriageBubble(m)
+      : m.online
       ? `<div class="card bubble-online"><div class="who-label">${icon('info', 14)} Live from trusted sources · MedlinePlus, FDA, RxNorm</div><div class="msg">${m.pending ? `<span class="spin" style="display:inline-flex;vertical-align:middle">${icon('clock', 16)}</span> ` : ''}${linkify(m.text)}</div></div>`
       : `<div class="card ${m.emergency ? 'bubble-emergency' : 'bubble-bot'}"><div class="who-label">${icon('chat', 14)} MedNest · from your records</div><div class="msg">${esc(m.text)}</div>${m.emergency ? `<a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">Call ${core.EMERGENCY_NUMBER}</a>` : ''}${m.sources?.length ? `<div class="caption" style="margin-top:6px">Source: ${srcLinks(id, m.sources)}</div>` : ''}</div>`).join('');
   const lastBot = [...chat.log].reverse().find((m) => m.role === 'bot');
   const addBtn = lastBot?.addMedicine && !lastBot.added ? `<button class="btn primary" id="ask-add">Add ${esc(lastBot.addMedicine.name)}${lastBot.addMedicine.dose ? ' ' + esc(lastBot.addMedicine.dose) : ''} to medicines</button>` : '';
-  const followChips = addBtn + (lastBot?.suggestions?.length ? `<div class="chips" style="margin-top:8px">${lastBot.suggestions.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '');
+  const followChips = addBtn + ((lastBot?.quickReplies || lastBot?.suggestions)?.length ? `<div class="chips" style="margin-top:8px">${(lastBot.quickReplies || lastBot.suggestions).map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '');
   render(`
     ${topbar('#/profile/' + id, 'Ask')}
     <div class="screen">
-      ${chat.log.length ? '' : `<div class="card"><div class="caption">Ask about ${esc(p.name)}'s medicines (what they are for, when to take them, for how long), results, follow-ups, allergies or doses. To talk through a symptom, use <a class="inline" href="#/profile/${id}/assistant">Check a symptom</a>.</div></div>`}
+      ${chat.log.length ? '' : `<div class="card"><div class="caption">Ask me anything about ${esc(p.name)}'s medicines (what they’re for, when to take them, for how long), results, follow-ups or allergies — or just tell me how you’re feeling and I’ll ask a few questions. To talk through a symptom, use <a class="inline" href="#/profile/${id}/assistant">Check a symptom</a>.</div></div>`}
       ${chat.log.length ? logHtml + followChips : `<div class="chips">${chips.map((c) => `<button class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join('')}<button class="chip" data-go="#/profile/${id}/assistant">Check a symptom →</button></div>`}
       <div class="disclaimer">${DISCLAIMER}</div>
       <div class="row" style="gap:8px;position:sticky;bottom:76px"><input id="ask-input" placeholder="Ask about ${esc(p.name)}…" class="grow"/><button class="iconbtn" id="ask-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>
     </div>${tabsBar(id, 'ask')}`);
+}
+
+/* ============================== symptom check inside a chat ============================== */
+// When someone describes a symptom in Ask, the symptom check runs right there in the
+// conversation (same rules engine as the Check tab) and the result is saved to history.
+function chatTriageBubble(m) {
+  if (m.kind === 'emergency') return `<div class="card bubble-emergency"><div class="name row" style="color:var(--danger);gap:8px">${icon('alert', 20)} Get help now</div><div class="msg">${esc(m.text)}</div><a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">${icon('phone', 18)} Call ${core.EMERGENCY_NUMBER}</a></div>`;
+  return `<div class="card ${m.kind === 'summary' ? 'bubble-summary' : 'bubble-bot'}"><div class="who-label">${icon('symptom', 14)} MedNest symptom check${m.kind === 'summary' ? ' · rules-based, not a diagnosis' : ''}</div><div class="msg">${esc(m.text)}</div>${m.saved ? `<div class="caption" style="margin-top:8px">Saved to medical history. <a class="inline" href="#/profile/${m.pid}/visit">Doctor visit summary</a></div>` : ''}</div>`;
+}
+async function startChatTriage(pid, text) {
+  const chat = window.__chat;
+  const ctx = triageContext(pid);
+  chat.triage = core.startTriage(ctx).state;
+  chat.triageSaved = false;
+  return continueChatTriage(pid, text);
+}
+async function continueChatTriage(pid, text) {
+  const chat = window.__chat;
+  chat.log.push({ role: 'user', text });
+  const r = await core.respond(chat.triage, text, triageContext(pid));
+  chat.triage = r.state;
+  const msgs = r.messages.map((m) => ({ role: 'bot', triage: true, kind: m.kind, text: m.text, quickReplies: m.quickReplies, pid }));
+  if (r.state.done && !r.state.stopped && !chat.triageSaved && r.state.disposition) {
+    saveAssessment(pid, r.state, r.messages);
+    chat.triageSaved = true;
+    const last = msgs[msgs.length - 1];
+    if (last) last.saved = true;
+  }
+  chat.log.push(...msgs);
+  renderAsk(pid);
+  window.scrollTo(0, document.body.scrollHeight);
 }
 
 /* ============================== live medical information ============================== */
@@ -1371,9 +1404,19 @@ function wire() {
 
   if ($('#ask-send')) {
     const id = location.hash.split('/')[2];
-    const submit = (text) => {
+    const submit = async (text) => {
       if (!text?.trim()) return;
       const chat = window.__chat;
+      // A symptom check is running in this chat: the message is an answer to it.
+      if (chat.triage && !chat.triage.done) return continueChatTriage(id, text);
+      const intent = core.classifyMessage(text);
+      if (intent === 'symptom') return startChatTriage(id, text);
+      const small = intent === 'unclear' ? null : core.conversationalReply(intent, 'records', chat.log.length);
+      if (small) {
+        chat.log.push({ role: 'user', text }, { role: 'bot', text: small, conversational: true });
+        renderAsk(id);
+        return window.scrollTo(0, document.body.scrollHeight);
+      }
       let res;
       try {
         res = askRecords(id, text, { lastMedicineId: chat.lastMedicineId, explainedIds: chat.explainedIds, pendingIntent: chat.pendingIntent });
@@ -1588,6 +1631,8 @@ function renderHealthInfo() {
     ? `<div class="card bubble-user"><div class="who-label">${icon('user', 14)} You</div>${esc(m.text)}</div>`
     : m.emergency
       ? `<div class="card bubble-emergency"><div class="name row" style="color:var(--danger);gap:8px">${icon('alert', 20)} Get help now</div><div class="msg">${esc(m.text)}</div><a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">${icon('phone', 18)} Call ${core.EMERGENCY_NUMBER}</a></div>`
+      : m.triage || m.conversational
+      ? `<div class="card ${m.kind === 'summary' ? 'bubble-summary' : 'bubble-bot'}"><div class="who-label">${icon(m.triage ? 'symptom' : 'chat', 14)} ${m.triage ? 'MedNest symptom check · rules-based' : 'MedNest'}</div><div class="msg">${esc(m.text)}</div></div>`
       : `<div class="card ${m.ai ? 'bubble-bot' : 'bubble-online'}"><div class="who-label">${icon(m.ai ? 'assistant' : 'info', 14)} ${m.ai ? 'Summary by the in-browser AI · based only on the sources above' : 'Live from trusted sources · MedlinePlus, FDA, RxNorm'}</div><div class="msg">${m.pending ? `<span class="spin" style="display:inline-flex;vertical-align:middle">${icon('clock', 16)}</span> ` : ''}${linkify(m.text)}</div></div>`).join('');
   const modelCard = w.status === 'ready'
     ? `<div class="caption">${icon('check', 14)} In-browser AI summaries are on.</div>`
@@ -1598,6 +1643,8 @@ function renderHealthInfo() {
         : w.status === 'error'
           ? `<div class="caption warn-text">The in-browser AI couldn’t load: ${esc(w.progress)}. Answers from trusted sources still work.</div>`
           : `<details class="card"><summary>Optional: plain-language summaries by an in-browser AI</summary><div class="caption" style="margin:6px 0">Downloads an open-source model once (~1 GB) and runs it on this device. Needs Chrome or Edge with WebGPU. It only summarises the sources shown.</div><button class="btn secondary" id="hi-load">Turn on in-browser AI</button></details>`;
+  const lastA = [...w.log].reverse().find((m) => m.role !== 'user');
+  const replyChips = lastA?.quickReplies?.length && w.triage && !w.triage.done ? `<div class="chips" style="margin-top:8px">${lastA.quickReplies.map((c) => `<button class="chip" data-hq="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
   const chips = w.log.length ? '' : `<div class="chips">${['What is gout?', 'What is warfarin used for?', 'Migraine', 'High blood pressure'].map((c) => `<button class="chip" data-hq="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
   render(`
     ${topbar('#/', 'General health questions')}
@@ -1605,6 +1652,7 @@ function renderHealthInfo() {
       <div class="notice"><span class="tile info" style="width:34px;height:34px">${icon('info', 18)}</span><span class="grow caption" style="color:var(--text)">Answers come live from MedlinePlus (NIH), US FDA drug labels and RxNorm, with links. General information only — not a diagnosis.</span></div>
       ${chips}
       ${logHtml}
+      ${replyChips}
       ${modelCard}
       <div class="row" style="gap:8px;position:sticky;bottom:12px;margin-top:12px"><input id="hi-input" placeholder="Ask about a condition or medicine…" class="grow" ${w.busy ? 'disabled' : ''} autocomplete="off"/><button class="iconbtn" id="hi-send" style="background:var(--accent);color:var(--onAccent)" aria-label="Send">${icon('next', 22)}</button></div>
       <div class="disclaimer">For your own records, open a profile and use Ask. If you feel unwell, use “Check a symptom”.</div>
@@ -1628,6 +1676,19 @@ async function loadWebLLM() {
   }
 }
 
+// No profile here: the check uses no personal history and is not saved.
+function genericTriageContext() {
+  return { ageYears: null, allergies: null, activeMedicines: [], priorEpisodes: [], now: new Date() };
+}
+async function healthTriage(q) {
+  const w = webllm;
+  const r = await core.respond(w.triage, q, genericTriageContext());
+  w.triage = r.state;
+  w.log.push(...r.messages.map((m) => (m.kind === 'emergency' ? { role: 'assistant', emergency: true, text: m.text } : { role: 'assistant', triage: true, kind: m.kind, text: m.text, quickReplies: m.quickReplies })));
+  if (r.state.done && !r.state.stopped && r.state.disposition && r.state.disposition !== 'emergency') w.log.push({ role: 'assistant', conversational: true, text: 'To save this to your medical history and include your medicines and allergies, open your profile and use Check a symptom.' });
+  renderHealthInfo();
+}
+
 async function sendHealthMsg(text) {
   const w = webllm;
   if (!text || !text.trim() || w.busy) return;
@@ -1636,9 +1697,16 @@ async function sendHealthMsg(text) {
   // Emergency warning signs get the fixed message in code — never a lookup or model answer.
   const flags = core.detectRedFlags(q);
   if (flags[0]?.level === 'emergency') {
+    w.triage = null; // an emergency ends any check in progress
     w.log.push({ role: 'assistant', emergency: true, text: flags.some((f) => f.id === 'self_harm') ? core.SELF_HARM_MESSAGE : core.EMERGENCY_MESSAGE });
     return renderHealthInfo();
   }
+  // A symptom check running here: this message answers it.
+  if (w.triage && !w.triage.done) return healthTriage(q);
+  const intent = core.classifyMessage(q);
+  if (intent === 'symptom') { w.triage = core.startTriage(genericTriageContext()).state; return healthTriage(q); }
+  const small = intent === 'unclear' ? null : core.conversationalReply(intent, 'general', w.log.length);
+  if (small) { w.log.push({ role: 'assistant', conversational: true, text: small }); return renderHealthInfo(); }
   if (!online()) {
     w.log.push({ role: 'assistant', text: 'You’re offline. Connect to the internet to look this up in trusted medical sources.' });
     return renderHealthInfo();

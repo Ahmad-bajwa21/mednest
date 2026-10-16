@@ -106,7 +106,7 @@ describe('triage engine', () => {
       'comes and goes',
       'fever',
     ]);
-    expect(asked(state).some((t) => t.startsWith('Besides vomiting'))).toBe(true);
+    expect(asked(state).some((t) => t.includes('Besides vomiting'))).toBe(true);
     expect(state.answers.associated).toMatchObject({ values: ['vomiting', 'fever'] });
   });
 
@@ -241,5 +241,59 @@ describe('headache triage scenarios (protocols-0.2-draft)', () => {
   it('records medicines the patient took (patient-reported)', async () => {
     const { state } = await run(['headache', 'today', 'gradually', '3', 'none', 'no', 'no', 'panadol 500 at 9am']);
     expect(state.answers.remedies).toEqual({ kind: 'text', value: 'panadol 500 at 9am' });
+  });
+});
+
+describe('natural conversation in the symptom check', () => {
+  it('"I feel you are not a good AI" gets an apology, not symptom categories', async () => {
+    const { state, last } = await run(['I feel you are not a good AI']);
+    expect(last[0]!.text).toMatch(/I’m sorry — it sounds like I haven’t been helpful/);
+    expect(last[0]!.quickReplies).toBeUndefined();
+    expect(state.protocolId).toBeNull();
+  });
+
+  it('"so wru" is answered as "who are you"', async () => {
+    const { last } = await run(['so wru']);
+    expect(last[0]!.text).toMatch(/MedNest’s health assistant — a computer program/);
+  });
+
+  it('a symptom with no specific protocol goes straight to questions (no category list)', async () => {
+    const { state, last } = await run(['my knee hurts when I walk']);
+    expect(state.protocolId).toBe('general');
+    expect(last[0]!.quickReplies).not.toContain('Stomach pain');
+    expect(last[0]!.text).toMatch(/I’ll ask a few|let’s figure out|Thanks for telling me/);
+  });
+
+  it('starts with empathy and acknowledges answers', async () => {
+    const { state } = await run(['I have stomach pain', '2 days']);
+    const said = asked(state);
+    expect(said[1]).toMatch(/sorry you’re dealing with stomach pain|That sounds uncomfortable|Thanks for telling me/);
+    expect(said[2]).toMatch(/^(Got it\.|Thanks\.|Okay, thank you\.|Thanks — that helps\.|Understood\.|Okay\.) /);
+  });
+
+  it('"why are you asking?" explains, then repeats the question', async () => {
+    const { state } = await run(['headache', 'today', 'gradually', '8', 'fever']);
+    const r = await respond(state, 'why are you asking this?', ctx());
+    expect(r.messages[0]!.text).toMatch(/rule out neck stiffness/);
+    expect(r.messages[1]!.text).toMatch(/neck stiff/);
+    expect(r.state.pendingSlot).toBe('neck');
+  });
+
+  it('small talk mid-check is answered briefly and the question repeated — not taken as an answer', async () => {
+    const { state } = await run(['stomach pain', '2 days', 'upper middle', '3', 'comes and goes', 'none']);
+    expect(state.pendingSlot).toBe('food');
+    const r = await respond(state, 'thanks', ctx());
+    expect(r.state.answers.food).toBeUndefined();
+    expect(r.messages[1]!.text).toMatch(/eaten or drunk/);
+  });
+
+  it('"stop" ends without an assessment; "start over" resets', async () => {
+    const stopped = await run(['headache', 'stop']);
+    expect(stopped.state.done).toBe(true);
+    expect(stopped.state.stopped).toBe(true);
+    expect(stopped.state.disposition).toBeNull();
+    const again = await run(['headache', 'start over']);
+    expect(again.state.protocolId).toBeNull();
+    expect(again.last[0]!.text).toMatch(/let’s start again/);
   });
 });
