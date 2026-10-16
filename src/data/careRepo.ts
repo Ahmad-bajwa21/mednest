@@ -22,7 +22,7 @@ import {
 } from './schema';
 import type { MedStatus, SchedulableMedicine, DoseLogStatus } from '../domain/schedule';
 import type { TriageState, Disposition } from '../ai/triage/engine';
-import { TRIAGE_ENGINE_VERSION } from '../ai/triage/engine';
+import { TRIAGE_ENGINE_VERSION, complaintLabel } from '../ai/triage/engine';
 import { protocolById } from '../ai/triage/protocols';
 
 /* ============================== medicines ============================== */
@@ -191,7 +191,7 @@ export async function saveAssessment(profileId: string, state: TriageState, summ
   const db = await getDb();
   const id = Crypto.randomUUID();
   const now = new Date().toISOString();
-  const complaint = state.complaint ?? protocolById(state.protocolId)?.label ?? 'Symptom check';
+  const complaint = complaintLabel(state);
   await db.insert(symptomEpisodes).values({
     id,
     profileId,

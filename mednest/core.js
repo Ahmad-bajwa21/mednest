@@ -3,13 +3,28 @@
 // src/ai/triage/redFlags.ts
 var EMERGENCY_NUMBER = "1122";
 var EMERGENCY_MESSAGE = `This could be serious. Please call ${EMERGENCY_NUMBER} or go to the nearest emergency department now. Do not wait and do not drive yourself if you feel unwell. If someone is with you, ask them to help.`;
-var SELF_HARM_MESSAGE = `You deserve support right now. Please call ${EMERGENCY_NUMBER}, go to the nearest emergency department, or reach out to someone you trust and tell them how you are feeling. You are not alone.`;
+var SELF_HARM_MESSAGE = `I\u2019m really glad you told me, and I\u2019m sorry you\u2019re going through this. You deserve support right now. Please call ${EMERGENCY_NUMBER} or go to the nearest emergency department, and if you can, tell someone you trust how you\u2019re feeling and stay with them \u2014 please don\u2019t be alone right now. You are not alone, and things can get better with help.`;
 var RULES = [
   {
     id: "self_harm",
     level: "emergency",
     reason: "thoughts of self-harm",
-    patterns: [/suicid/, /kill (my ?self|myself)/, /end (my|it all|my life)\b/, /self[- ]?harm/, /want to die/, /khud ?kushi/]
+    patterns: [
+      /suicid/,
+      /kill (my ?self|myself)/,
+      /end (my|it all|my life)\b/,
+      /self[- ]?harm/,
+      /want to die/,
+      /khud ?kushi/,
+      /(don'?t|do not) want to (live|be alive|wake up)/,
+      /no (reason|point) (to|in) (live|living|going on)/,
+      /better off dead/,
+      /(hurt|harm|cut) (my ?self|myself)/,
+      /life (is not|isn'?t) worth/,
+      /wish i (was|were) dead/,
+      /jeena nahi/,
+      /mar ?jana chahta/
+    ]
   },
   {
     id: "chest_pain",
@@ -318,17 +333,27 @@ function expandShorthand(text) {
 }
 var SYMPTOM_WORDS = /\b(pain|painful|ache|aches|aching|hurts?|hurting|sore|fever|temperature|cough|coughing|cold|flu|vomit\w*|throwing up|nause\w*|diarrh\w*|loose motions?|constipat\w*|dizz\w*|faint\w*|headaches?|migraines?|rash(es)?|itch\w*|swell\w*|swollen|bleed\w*|blood|burn\w*|cramps?|tired|fatigue|weak\w*|numb\w*|breath\w*|wheez\w*|sneez\w*|runny|blocked nose|chills|sweat\w*|infection|injur\w*|sprain|bruise|lump|stiff|insomnia|can't sleep|anxious|anxiety|panic|depress\w*|unwell|sick|ill|dard|bukhar|khansi|ulti|dast|chakkar|kamzori|zukam|nazla)\b/;
 var BODY_PARTS = /\b(stomach|tummy|belly|abdomen|head|chest|back|neck|throat|ear|ears|eye|eyes|nose|tooth|teeth|knee|leg|legs|arm|arms|hand|foot|feet|joint|joints|skin|heart|kidney|side|shoulder|hip|pet|sar|seena|kamar|gala)\b/;
-var I_HAVE = /\b(i have|i've got|i got|i am having|i'm having|i've been having|i feel|i'm feeling|i am feeling|i keep|my \w+ (hurts?|is hurting|aches|is aching|is sore|is swollen|is bleeding)|mujhe|mera|meri|mere)\b/;
+var I_HAVE = /^\s*(feeling|having|been having|been feeling|got|suffering from)\b|\b(suffering from|i have|i've got|i got|i am having|i'm having|i've been having|i feel|i'm feeling|i am feeling|i keep|my \w+ (hurts?|is hurting|aches|is aching|is sore|is swollen|is bleeding)|mujhe|mera|meri|mere)\b/;
+var MENTAL = /\b(depress\w*|anxi\w*|panic\w*|stress\w*|sad|sadness|hopeless\w*|worthless|low mood|(feel|feeling|felt)( very| so| really| quite)? (low|down|sad|empty|hopeless|numb|worthless|lonely|anxious|stressed)|lonely|loneliness|can't cope|cannot cope|overwhelm\w*|overthink\w*|intrusive thoughts?|dark thoughts?|negative thoughts?|bad thoughts?|thoughts? (are|is|keep) (getting )?(worse|bad)|mental health|mentally|crying|empty inside|numb inside|suicid\w*|self[- ]?harm|kill myself|end my life|don't want to live|udas\w*|pareshan\w*|tension|ghabrahat|dil nahi lagta)\b/;
+function isMentalHealth(text) {
+  return MENTAL.test(expandShorthand(text));
+}
+var QUESTION_START = /^\s*(what|whats|what's|why|how|which|when|where|who|is|are|can|could|should|does|do|tell me about|explain|define|list)\b/;
 function isSymptomStatement(text) {
   const t = expandShorthand(text);
+  if (QUESTION_START.test(t) || /\?\s*$/.test(t))
+    return false;
   if (/\b(you|your)\b/.test(t) && !/\bmy\b/.test(t))
     return false;
-  const symptom = SYMPTOM_WORDS.test(t) || BODY_PARTS.test(t) && /\b(pain|hurts?|ache|sore|problem|issue|dard)\b/.test(t);
-  if (!symptom)
+  const symptom = SYMPTOM_WORDS.test(t) || MENTAL.test(t) || BODY_PARTS.test(t) && /\b(pain|hurts?|ache|sore|problem|issue|dard)\b/.test(t);
+  return symptom && I_HAVE.test(t);
+}
+function isHealthTopic(text) {
+  const t = expandShorthand(text);
+  const words2 = t.trim().split(" ").filter(Boolean);
+  if (!words2.length || words2.length > 5 || I_HAVE.test(t) || QUESTION_START.test(t) || /\?\s*$/.test(t))
     return false;
-  if (/^\s*(what|whats|what's|why|how|which|tell me about|explain|define)\b/.test(t) && !I_HAVE.test(t))
-    return false;
-  return I_HAVE.test(t) || t.trim().split(" ").length <= 6;
+  return SYMPTOM_WORDS.test(t) || MENTAL.test(t) || BODY_PARTS.test(t) && /\b(pain|ache|problem|dard)\b/.test(t) || /\b(diabetes|blood pressure|hypertension|asthma|cholesterol|thyroid|gout|arthritis|allergy|allergies|typhoid|dengue|malaria|covid|ulcer|acidity|gastritis|piles|hepatitis|anemia|anaemia)\b/.test(t);
 }
 function classifyMessage(text) {
   const t = expandShorthand(text);
@@ -345,6 +370,8 @@ function classifyMessage(text) {
     return "complaint";
   if (isSymptomStatement(text))
     return "symptom";
+  if (isHealthTopic(text))
+    return "topic";
   if (/\b(who are you|what are you|are you (a |an )?(bot|robot|ai|human|real|doctor|person)|your name|who made you|who built you|ap kon|aap kaun|tum kaun)\b/.test(t))
     return "identity";
   if (/\b(what can you do|how (can|do) you help|what do you do|help me|how does this work|how to use)\b/.test(t) || /^\s*help\s*$/.test(t))
@@ -404,7 +431,9 @@ function conversationalReply(intent, scope, seed = 0, name) {
       return null;
   }
 }
-function acknowledgement(seed) {
+function acknowledgement(seed, gentle = false) {
+  if (gentle)
+    return pick(["Thank you for sharing that.", "Thank you.", "Thank you for being open with me.", "I appreciate you telling me."], seed);
   return pick(["Got it.", "Thanks.", "Okay, thank you.", "Thanks \u2014 that helps.", "Understood.", "Okay."], seed);
 }
 function empathyLine(label, seed) {
@@ -417,6 +446,28 @@ function empathyLine(label, seed) {
     ],
     seed
   );
+}
+var OFFER_CHECK = "Check my symptoms";
+var OFFER_INFO = "Just general information";
+function symptomOffer(text, seed = 0) {
+  const mental2 = isMentalHealth(text);
+  const open = mental2 ? pick(["I\u2019m really sorry you\u2019re feeling this way \u2014 thank you for telling me.", "That sounds really hard, and I\u2019m glad you said something."], seed) : pick(["I\u2019m sorry you\u2019re dealing with that.", "That sounds uncomfortable \u2014 I\u2019m sorry."], seed);
+  const offer = mental2 ? "Would you like me to ask a few gentle questions so I can point you to the right support, or would you prefer some general information first?" : "Would you like me to ask a few quick questions to work out how soon you should get care, or would you prefer some general information about it?";
+  return { text: `${open} ${offer}`, quickReplies: [OFFER_CHECK, OFFER_INFO] };
+}
+function wantsCheck(text) {
+  const t = expandShorthand(text);
+  if (/check my symptoms|^\s*(yes|yeah|yep|ok|okay|sure|please|haan|ji)\b|ask (me )?(the |a few )?questions|check (it|me)/.test(t))
+    return true;
+  if (/general information|just (info|information)|^\s*(no|nope|nah|not now|no thanks|nahi)\b|information only|tell me about/.test(t))
+    return false;
+  return null;
+}
+function topicForSymptom(text) {
+  const t = expandShorthand(text);
+  if (isMentalHealth(t))
+    return /panic/.test(t) ? "panic attack" : /anxi|worr|nervous|ghabrah/.test(t) ? "anxiety" : /stress|tension/.test(t) ? "stress" : /sleep|insomnia/.test(t) ? "insomnia" : "depression";
+  return t.replace(/\b(i have|i've got|i got|i am having|i'm having|i've been having|i feel|i'm feeling|i am feeling|i keep getting|i keep|feeling|having|suffering from|my|a|an|some|really|very|bad|severe|since \w+|for \w+ \w+|today|yesterday|this morning|and|it|is|hurts?|hurting)\b/g, " ").replace(/\s+/g, " ").trim();
 }
 
 // src/ai/triage/protocols.ts
@@ -957,9 +1008,129 @@ var remedies = {
   label: "Medicines taken for this",
   question: "Have you taken any medicine for this so far? If yes, which one and when? Say \u201Cnone\u201D if not."
 };
+var mental = {
+  id: "mental_health",
+  label: "Mood or mental health",
+  match: /\b(depress\w*|anxi\w*|panic|stress\w*|hopeless\w*|worthless|low mood|(feel|feeling|felt)( very| so| really| quite)? (low|down|sad|empty|hopeless|numb|worthless|lonely)|lonely|can'?t cope|cannot cope|overwhelm\w*|overthink\w*|intrusive thoughts?|dark thoughts?|negative thoughts?|bad thoughts?|thoughts? (are|is|keep) (getting )?(worse|bad)|mental health|mentally|empty inside|udas\w*|pareshan\w*|ghabrahat|dil nahi lagta|sad)\b/,
+  seeGpAfterDays: 14,
+  gentle: true,
+  opening: "Thank you for telling me \u2014 that takes courage, and I\u2019m glad you reached out. I\u2019m here to listen. I\u2019ll ask a few gentle questions so I can point you to the right kind of help, and you can skip any of them.",
+  slots: [
+    {
+      id: "feelings",
+      kind: "multi",
+      label: "Feelings",
+      prefillable: true,
+      question: "Which of these have you been experiencing?",
+      options: [
+        { value: "low", label: "Low or sad mood", aliases: /\b(sad|low|depress\w*|down|udas\w*)\b/ },
+        { value: "hopeless", label: "Feeling hopeless or worthless", aliases: /hopeless|worthless|no hope|pointless|no future/ },
+        { value: "anxious", label: "Anxiety or constant worry", aliases: /anxi\w*|worr\w*|nervous|tension|ghabrah\w*/ },
+        { value: "panic", label: "Panic attacks", aliases: /panic/ },
+        { value: "sleep", label: "Sleep problems", aliases: /sleep|insomnia|awake at night/ },
+        { value: "interest", label: "Lost interest in things", aliases: /no interest|lost interest|don'?t enjoy|dil nahi lagta/ },
+        { value: "thoughts", label: "Upsetting or racing thoughts", aliases: /thoughts?|overthink\w*|racing mind|intrusive/ },
+        NONE
+      ]
+    },
+    {
+      id: "harm_thoughts",
+      kind: "yesno",
+      label: "Thoughts of suicide or self-harm",
+      critical: "thoughts of self-harm",
+      question: "When people feel this way, they sometimes have thoughts of ending their life or hurting themselves. Have you had thoughts like that recently? It\u2019s okay to be honest \u2014 I\u2019m asking so I can make sure you get the right support."
+    },
+    {
+      id: "plan",
+      kind: "yesno",
+      label: "Plan or method considered",
+      critical: "a plan to harm yourself",
+      question: "Thank you for telling me. Have you thought about how you might do it, or made any plans?",
+      askIf: (a) => yes(a, "harm_thoughts")
+    },
+    {
+      id: "safe_now",
+      kind: "yesno",
+      label: "Able to stay safe right now",
+      critical: "whether you are safe right now",
+      question: "Do you feel able to keep yourself safe right now, for the next few hours?",
+      askIf: (a) => yes(a, "harm_thoughts")
+    },
+    {
+      id: "harm_others",
+      kind: "yesno",
+      label: "Thoughts of harming someone else",
+      critical: "thoughts of harming someone else",
+      question: "Have you had any thoughts of harming someone else?"
+    },
+    { id: "onset", kind: "duration", label: "How long", prefillable: true, question: "How long have you been feeling like this?" },
+    { id: "worsening", kind: "yesno", label: "Getting worse", question: "Has it been getting worse recently?" },
+    {
+      id: "daily",
+      kind: "choice",
+      label: "Effect on daily life",
+      question: "How much is this affecting your daily life \u2014 work or studies, family, eating, looking after yourself?",
+      options: [
+        { value: "little", label: "A little", aliases: /\b(little|a bit|slightly|not much)\b/ },
+        { value: "lot", label: "A lot", aliases: /\b(a lot|lots|very much|badly|quite a lot)\b/ },
+        { value: "cant", label: "I can barely manage", aliases: /\b(barely|can'?t manage|cannot manage|unable|not at all)\b/ }
+      ]
+    },
+    { id: "support", kind: "yesno", label: "Someone to talk to", question: "Is there someone you trust that you can talk to \u2014 family, a friend, a teacher?" },
+    { id: "previous", kind: "yesno", label: "Previous episodes or treatment", question: "Have you felt like this before, or had help or treatment for your mental health?" }
+  ],
+  rules: (a) => {
+    const out = [];
+    if (yes(a, "plan"))
+      out.push(flag("suicide_plan", "emergency", "thoughts of ending your life with a plan"));
+    if (no(a, "safe_now"))
+      out.push(flag("not_safe", "emergency", "not feeling able to stay safe right now"));
+    if (yes(a, "harm_others"))
+      out.push(flag("harm_others", "emergency", "thoughts of harming someone else"));
+    if (yes(a, "harm_thoughts"))
+      out.push(flag("harm_thoughts", "urgent", "thoughts of ending your life or hurting yourself"));
+    if (choiceOf(a, "daily") === "cant")
+      out.push(flag("cant_manage", "urgent", "finding it very hard to manage day to day"));
+    if (has(a, "feelings", "hopeless") && yes(a, "worsening"))
+      out.push(flag("hopeless_worse", "urgent", "feeling hopeless and getting worse"));
+    const h = hoursOf(a, "onset");
+    if (h !== null && h >= 24 * 14)
+      out.push(flag("two_weeks", "gp", "feeling this way for two weeks or more"));
+    if (yes(a, "worsening"))
+      out.push(flag("worsening_mood", "gp", "it is getting worse"));
+    if (choiceOf(a, "daily") === "lot")
+      out.push(flag("daily_impact", "gp", "it is affecting daily life a lot"));
+    if (has(a, "feelings", "panic"))
+      out.push(flag("panic", "gp", "panic attacks"));
+    return out;
+  },
+  advice: {
+    urgent: `Please talk to a doctor or a mental health professional today. If you can, tell someone you trust how you\u2019re feeling and try not to be alone. If thoughts of harming yourself get stronger, call 1122 or go to the nearest emergency department straight away.`,
+    gp: "Please book an appointment with a doctor (GP) or a psychologist in the next few days. Depression and anxiety are common and treatable \u2014 you don\u2019t have to manage this alone.",
+    self_care: "From what you\u2019ve shared, this may ease with rest and support \u2014 but you don\u2019t need to wait until it gets worse to ask for help. If it lasts more than two weeks or starts affecting your daily life, please see a doctor.",
+    insufficient: "I don\u2019t have enough information to guide you, and that\u2019s okay. If you\u2019re struggling, please talk to a doctor or someone you trust \u2014 reaching out is a good step."
+  },
+  heading: {
+    urgent: "Please get support today",
+    gp: "Please see a doctor or psychologist soon",
+    self_care: "Look after yourself \u2014 and reach out"
+  },
+  generalInfo: [
+    "Talk to someone you trust about how you feel \u2014 you don\u2019t have to carry it alone.",
+    "Try to keep a routine: regular sleep, meals and a little daily movement or time outside.",
+    "Avoid alcohol and recreational drugs; they can make low mood and anxiety worse.",
+    "Depression and anxiety are common and treatable \u2014 a doctor or psychologist can help."
+  ],
+  safetyNet: [
+    "You have thoughts of ending your life, or of harming yourself or someone else",
+    "You feel you can\u2019t keep yourself safe",
+    "You stop eating or drinking, or can\u2019t get out of bed for days",
+    "You hear or see things other people don\u2019t"
+  ]
+};
 for (const p of [abdominal, headache, fever, cough, gut, general])
   p.slots.push(remedies);
-var PROTOCOLS = [abdominal, headache, fever, cough, gut, general];
+var PROTOCOLS = [mental, abdominal, headache, fever, cough, gut, general];
 var GENERAL_PROTOCOL = general;
 function protocolById(id) {
   return PROTOCOLS.find((p) => p.id === id);
@@ -1134,15 +1305,22 @@ async function respond(prev, text, ctx, interpret) {
     messages.push(...finishEmergency(state, ctx, state.flags));
     return { state, messages };
   }
-  if (highestLevel(state.flags) === "urgent" && !messages.some((m) => m.kind === "info") && !state.transcript.some((t) => t.text.startsWith(URGENT_NOTE))) {
-    messages.push(say(state, ctx, { kind: "info", text: `${URGENT_NOTE} ${state.flags.filter((f) => f.level === "urgent").map((f) => f.reason).join("; ")}. I\u2019ll ask just a few more questions.` }));
+  let urgentNoted = false;
+  if (highestLevel(state.flags) === "urgent" && !messages.some((m) => m.kind === "info") && !state.transcript.some((t) => t.text.startsWith(URGENT_NOTE) || t.text.startsWith(GENTLE_NOTE))) {
+    urgentNoted = true;
+    messages.push(
+      say(state, ctx, {
+        kind: "info",
+        text: protocol.gentle ? `${GENTLE_NOTE} I want to make sure you\u2019re safe, so I\u2019ll ask a couple more questions.` : `${URGENT_NOTE} ${state.flags.filter((f) => f.level === "urgent").map((f) => f.reason).join("; ")}. I\u2019ll ask just a few more questions.`
+      })
+    );
   }
   const next = nextSlot(protocol, state, ctx);
   if (next) {
     state.pendingSlot = next.id;
     const q = questionFor(next, state, ctx);
     const label = protocol.id === "general" ? "this" : protocol.label;
-    const prefix = justStarted ? empathyLine(label, seed) : answeredNow ? acknowledgement(seed) : "";
+    const prefix = justStarted ? protocol.opening ?? empathyLine(label, seed) : answeredNow && !urgentNoted && !/^Thank you/.test(q.text) ? acknowledgement(seed, protocol.gentle) : "";
     messages.push(say(state, ctx, { ...q, text: prefix ? `${prefix} ${q.text}` : q.text }));
     return { state, messages };
   }
@@ -1172,6 +1350,7 @@ function whyWeAsk(slot) {
   return WHY[id] ?? "It helps me understand how urgent this is.";
 }
 var URGENT_NOTE = "Please arrange to see a doctor today because of";
+var GENTLE_NOTE = "Thank you for trusting me with that.";
 function structuredCloneState(s) {
   return JSON.parse(JSON.stringify(s));
 }
@@ -1189,9 +1368,10 @@ function finishEmergency(state, ctx, flags) {
   state.done = true;
   state.disposition = "emergency";
   state.pendingSlot = null;
-  const selfHarm = flags.some((f) => f.id === "self_harm");
+  const selfHarm = flags.some((f) => f.id === "self_harm" || f.id === "suicide_plan" || f.id === "not_safe");
+  const harmOthers = flags.some((f) => f.id === "harm_others");
   const reasons = flags.filter((f) => f.level === "emergency").map((f) => f.reason);
-  const text = selfHarm ? SELF_HARM_MESSAGE : `You mentioned ${joinAnd(reasons)}. ${EMERGENCY_MESSAGE}`;
+  const text = selfHarm ? SELF_HARM_MESSAGE : harmOthers ? `Thank you for being honest with me \u2014 that matters. Please call ${EMERGENCY_NUMBER} or go to the nearest emergency department now, and if you can, move to a safe place and ask someone you trust to be with you. Help is available, and you don\u2019t have to handle this alone.` : `You mentioned ${joinAnd(reasons)}. ${EMERGENCY_MESSAGE}`;
   return [say(state, ctx, { kind: "emergency", text })];
 }
 function nextSlot(protocol, state, ctx) {
@@ -1324,8 +1504,9 @@ function computeOutcome(state, ctx) {
     const sev = state.answers.severity?.kind === "scale" ? state.answers.severity.value : null;
     disposition = sev !== null && sev >= 6 ? "gp" : "self_care";
   }
-  let advice = ADVICE[disposition];
-  if (disposition === "self_care")
+  const own = disposition !== "emergency" ? protocol.advice?.[disposition] : void 0;
+  let advice = own ?? ADVICE[disposition];
+  if (disposition === "self_care" && !own)
     advice += ` If it is not better within ${protocol.seeGpAfterDays} day${protocol.seeGpAfterDays === 1 ? "" : "s"}, or it gets worse, see a doctor.`;
   const contextNotes = [];
   if (ctx.allergies?.trim())
@@ -1337,6 +1518,7 @@ function computeOutcome(state, ctx) {
     contextNotes.push(`You have reported this ${prior.length} time${prior.length === 1 ? "" : "s"} before (last on ${prior.map((p) => p.date).sort().pop()}). Repeated episodes are worth discussing with a doctor.`);
   return {
     disposition,
+    heading: (disposition !== "emergency" ? protocol.heading?.[disposition] : void 0) ?? HEADINGS[disposition],
     flags,
     summary: summarise(state, protocol),
     advice,
@@ -1344,6 +1526,16 @@ function computeOutcome(state, ctx) {
     safetyNet: protocol.safetyNet,
     contextNotes
   };
+}
+function complaintLabel(state) {
+  const protocol = protocolById(state.protocolId);
+  if (protocol && protocol.id !== "general")
+    return protocol.label;
+  const c = (state.complaint ?? "").trim();
+  if (!c || !isSymptomStatement(c))
+    return "Symptom check";
+  const cleaned = c.replace(/^\s*(i\s*(have|'ve got|got|am having|'m having|have been having|feel|'m feeling|am feeling|keep getting|keep)|feeling|having|been having|suffering from|mujhe|mera|meri)\s+/i, "").replace(/^\s*(a|an|some|really|very|bad|severe)\s+/i, "").replace(/[.!]+$/, "").trim();
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : "Symptom check";
 }
 function summarise(state, protocol = currentProtocol(state)) {
   const parts = [];
@@ -1354,8 +1546,8 @@ function summarise(state, protocol = currentProtocol(state)) {
     const v = a.kind === "duration" ? a.text === "today" || a.text.startsWith("since") || a.text.includes("ago") ? a.text : `about ${a.text} ago` : a.kind === "scale" ? `${a.value}/10` : a.kind === "choice" ? a.label : a.kind === "multi" ? a.values.includes("none") && a.values.length === 1 ? "none" : a.labels.filter((l) => l !== "None of these").join(", ") : a.kind === "yesno" ? a.value ? "yes" : "no" : a.value;
     parts.push(`${slot.label}: ${v}`);
   }
-  const head = `${protocol.id === "general" ? "Problem" : protocol.label}${state.complaint ? ` \u2014 \u201C${state.complaint}\u201D` : ""}`;
-  return [head, ...parts].join("\n");
+  const words2 = state.complaint && isSymptomStatement(state.complaint) ? state.complaint : null;
+  return [`Problem: ${complaintLabel(state)}`, ...words2 ? [`In your words: \u201C${words2}\u201D`] : [], ...parts].join("\n");
 }
 var HEADINGS = {
   emergency: "Seek emergency care now",
@@ -1365,7 +1557,7 @@ var HEADINGS = {
   insufficient: "Not enough information"
 };
 function renderOutcome(o) {
-  const lines = [`${HEADINGS[o.disposition]}`, "", o.advice];
+  const lines = [`${o.heading ?? HEADINGS[o.disposition]}`, "", o.advice];
   const reasons = o.flags.filter((f) => f.level === (o.disposition === "gp" ? "gp" : o.disposition)).map((f) => f.reason);
   if (reasons.length && (o.disposition === "urgent" || o.disposition === "gp"))
     lines.push("", "Why:", ...uniqText(reasons).map((r) => `\u2022 ${cap1(r)}`));
@@ -3044,7 +3236,121 @@ async function lookupMedicineOnline(name, fetchFn, otherGenerics = []) {
   }
   return out;
 }
+var ALIASES = {
+  headaches: "headache",
+  "head ache": "headache",
+  "head pain": "headache",
+  "sar dard": "headache",
+  migraines: "migraine",
+  "stomach pain": "abdominal pain",
+  "stomach ache": "abdominal pain",
+  stomachache: "abdominal pain",
+  "tummy ache": "abdominal pain",
+  "tummy pain": "abdominal pain",
+  "belly pain": "abdominal pain",
+  "pet dard": "abdominal pain",
+  "abdominal pains": "abdominal pain",
+  anxious: "anxiety",
+  "anxiety attack": "panic attack",
+  "panic attacks": "panic attack",
+  depressed: "depression",
+  "low mood": "depression",
+  stressed: "stress",
+  "high blood pressure": "hypertension",
+  bp: "hypertension",
+  "blood pressure": "hypertension",
+  sugar: "diabetes",
+  "blood sugar": "diabetes",
+  "sugar disease": "diabetes",
+  acidity: "heartburn",
+  "acid reflux": "heartburn",
+  gerd: "heartburn",
+  "loose motion": "diarrhea",
+  "loose motions": "diarrhea",
+  diarrhoea: "diarrhea",
+  vomiting: "nausea and vomiting",
+  nausea: "nausea and vomiting",
+  "sore throat": "sore throat",
+  "common cold": "cold",
+  flu: "influenza",
+  fevers: "fever",
+  bukhar: "fever",
+  coughing: "cough",
+  khansi: "cough",
+  "back ache": "back pain",
+  backache: "back pain",
+  "kamar dard": "back pain",
+  dizzy: "dizziness",
+  "cant sleep": "insomnia",
+  "can't sleep": "insomnia",
+  sleeplessness: "insomnia",
+  tired: "fatigue",
+  tiredness: "fatigue",
+  anaemia: "anemia",
+  "urine infection": "urinary tract infection",
+  uti: "urinary tract infection"
+};
+var ICD10 = {
+  headache: "R51.9",
+  migraine: "G43.909",
+  "abdominal pain": "R10.9",
+  anxiety: "F41.9",
+  "panic attack": "F41.0",
+  depression: "F32.A",
+  stress: "F43.9",
+  insomnia: "G47.00",
+  fever: "R50.9",
+  cough: "R05.9",
+  cold: "J00",
+  influenza: "J11.1",
+  "sore throat": "J02.9",
+  diarrhea: "R19.7",
+  "nausea and vomiting": "R11.2",
+  constipation: "K59.00",
+  "back pain": "M54.9",
+  dizziness: "R42",
+  "chest pain": "R07.9",
+  fatigue: "R53.83",
+  rash: "R21",
+  heartburn: "R12",
+  gastritis: "K29.70",
+  hypertension: "I10",
+  diabetes: "E11.9",
+  asthma: "J45.909",
+  gout: "M10.9",
+  anemia: "D64.9",
+  "high cholesterol": "E78.5",
+  cholesterol: "E78.5",
+  "urinary tract infection": "N39.0",
+  typhoid: "A01.00",
+  dengue: "A90",
+  malaria: "B54"
+};
+function canonicalTopic(term) {
+  const t = term.toLowerCase().replace(/[^a-z' ]/g, " ").replace(/\s+/g, " ").trim();
+  if (ALIASES[t])
+    return ALIASES[t];
+  if (ICD10[t])
+    return t;
+  const singular = t.replace(/\b(\w{4,}?)(es|s)\b/g, (w, stem, end) => /(diabetes|stress|abscess|lupus|herpes|measles|mumps|tetanus|rabies|scabies|piles)$/.test(w) ? w : end === "es" && /(ch|sh|ss|x)$/.test(stem) ? stem : stem + (end === "es" ? "e" : ""));
+  return ALIASES[singular] ?? singular;
+}
 async function lookupTopicOnline(term, fetchFn) {
+  const canonical = canonicalTopic(term);
+  const known = ICD10[canonical];
+  if (known) {
+    const mp = await getJson(fetchFn, `${CONNECT}?mainSearchCriteria.v.cs=2.16.840.1.113883.6.90&mainSearchCriteria.v.c=${enc(known)}&knowledgeResponseType=application/json`);
+    const e = mp?.feed?.entry?.[0];
+    if (e?.summary?._value) {
+      return {
+        query: term,
+        title: e.title?._value ?? canonical,
+        summary: cleanText(e.summary._value, 700),
+        sources: [{ name: "MedlinePlus (US National Library of Medicine)", url: String(e.link?.[0]?.href ?? "https://medlineplus.gov").split("?")[0] }]
+      };
+    }
+  }
+  term = canonical;
   const t = await getJson(fetchFn, `${TABLES}?terms=${enc(term)}&df=primary_name,icd10cm_codes&maxList=3`);
   const rows = Array.isArray(t?.[3]) ? t[3] : [];
   for (const [title2, codes] of rows) {
@@ -3116,8 +3422,10 @@ function topicOf(question) {
 }
 function planEnrichment(question, answer, meds, ctx) {
   const kind = classifyMessage(question);
-  if (kind !== "question" && kind !== "unclear")
+  if (kind !== "question" && kind !== "unclear" && kind !== "topic")
     return null;
+  if (kind === "topic" && !identifyMedicine(question.trim()))
+    return { kind: "topic", term: question.trim().toLowerCase() };
   const q = ` ${question.toLowerCase()} `;
   const wantsInfo = /\b(what|why|for|about|side ?effects?|warnings?|interact\w*|safe|tell|explain|use|used|kya)\b/.test(q);
   const otherGenerics = [...new Set(meds.map((m) => identifyMedicine(m.name)?.generic).filter((g) => !!g))];
@@ -3163,6 +3471,8 @@ async function runEnrichment(plan, fetchFn) {
 export {
   EMERGENCY_MESSAGE,
   EMERGENCY_NUMBER,
+  OFFER_CHECK,
+  OFFER_INFO,
   PROTOCOLS,
   SELF_HARM_MESSAGE,
   DISCLAIMER as TRIAGE_DISCLAIMER,
@@ -3172,7 +3482,9 @@ export {
   askCare,
   buildDoseAlarms,
   buildVisitSummary,
+  canonicalTopic,
   classifyMessage,
+  complaintLabel,
   computeOutcome,
   conversationalReply,
   deriveStatus,
@@ -3184,6 +3496,7 @@ export {
   formatTime,
   historyEntries,
   identifyMedicine,
+  isMentalHealth,
   isSymptomStatement,
   localDateIso,
   lookupMedicineOnline,
@@ -3209,7 +3522,10 @@ export {
   snoozeAlarm,
   sortedTimes,
   startTriage,
+  symptomOffer,
   todaysDoses,
+  topicForSymptom,
   topicOf,
-  upcomingAppointments
+  upcomingAppointments,
+  wantsCheck
 };

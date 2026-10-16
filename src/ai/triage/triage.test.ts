@@ -1,6 +1,6 @@
 import { detectRedFlags } from './redFlags';
 import { parseDuration, parseMulti, parseSeverity } from './parse';
-import { MEDICINE_REPLY, respond, startTriage, type TriageState } from './engine';
+import { MEDICINE_REPLY, computeOutcome, respond, startTriage, type TriageState } from './engine';
 import { PROTOCOLS, type TriageContext } from './protocols';
 
 const ctx = (over: Partial<TriageContext> = {}): TriageContext => ({
@@ -67,7 +67,7 @@ describe('parsers', () => {
     expect(parseSeverity('unbearable')).toBe(10);
   });
   it('multi-choice honours negation', () => {
-    const opts = PROTOCOLS[0]!.slots.find((s) => s.id === 'associated')!.options!;
+    const opts = PROTOCOLS.find((p) => p.id === 'abdominal_pain')!.slots.find((s) => s.id === 'associated')!.options!;
     expect(parseMulti('vomiting but no fever', opts)).toEqual(['vomiting']);
     expect(parseMulti('none', opts)).toEqual(['none']);
   });
@@ -295,5 +295,51 @@ describe('natural conversation in the symptom check', () => {
     const again = await run(['headache', 'start over']);
     expect(again.state.protocolId).toBeNull();
     expect(again.last[0]!.text).toMatch(/let’s start again/);
+  });
+});
+
+describe('mental health is handled with empathy and safety questions', () => {
+  const said = (s: TriageState) => s.transcript.filter((t) => t.role === 'assistant').map((t) => t.text);
+
+  it('depression with worsening thoughts → mental-health questions, not physical ones', async () => {
+    const { state } = await run(['I feel depressed and my thoughts are getting worse']);
+    expect(state.protocolId).toBe('mental_health');
+    const text = said(state).join(' ');
+    expect(text).toMatch(/Thank you for telling me — that takes courage/);
+    expect(text).not.toMatch(/Where exactly|0 \(none\) to 10/);
+  });
+
+  it('asks the safety question directly; thoughts + plan → crisis response immediately', async () => {
+    const { state, last } = await run(['I feel depressed and my thoughts are getting worse', 'none', 'yes', 'yes']);
+    expect(said(state).some((t) => /thoughts of ending their life or hurting themselves/.test(t))).toBe(true);
+    expect(state.disposition).toBe('emergency');
+    expect(last.at(-1)!.text).toMatch(/I’m really glad you told me/);
+    expect(last.at(-1)!.text).toMatch(/1122/);
+  });
+
+  it('thoughts without a plan, feeling safe → support today, with gentle wording', async () => {
+    const { state, last } = await run(['I feel very low', 'none', 'yes', 'no', 'yes', 'no', '3 weeks', 'yes', 'a lot', 'yes', 'no']);
+    expect(state.disposition).toBe('urgent');
+    expect(last[0]!.text).toMatch(/^Please get support today/);
+    expect(last[0]!.text).toMatch(/talk to a doctor or a mental health professional today/);
+  });
+
+  it('not sure about the safety question cannot be ruled out → at least today', async () => {
+    const { state } = await run(['I feel anxious all the time', 'anxiety', 'not sure', 'no', '1 week', 'no', 'a little', 'yes', 'no']);
+    expect(state.flags.some((f) => f.id === 'unknown_harm_thoughts')).toBe(true);
+    expect(state.disposition).toBe('urgent');
+  });
+
+  it('typed self-harm words go straight to the crisis message', async () => {
+    const { state, last } = await run(['I don’t want to live anymore']);
+    expect(state.disposition).toBe('emergency');
+    expect(last[0]!.text).toMatch(/please don’t be alone right now/);
+  });
+
+  it('records a label, not the question, as the problem', async () => {
+    const { state } = await run(['why do I have headaches', 'Headache', 'today', 'gradually', '3', 'none', 'no', 'no', 'none']);
+    const o = computeOutcome(state, ctx());
+    expect(o.summary).toMatch(/^Problem: Headache/);
+    expect(o.summary).not.toMatch(/why do I have headaches/);
   });
 });

@@ -23,8 +23,7 @@ export const EMERGENCY_MESSAGE =
   'Do not wait and do not drive yourself if you feel unwell. If someone is with you, ask them to help.';
 
 export const SELF_HARM_MESSAGE =
-  `You deserve support right now. Please call ${EMERGENCY_NUMBER}, go to the nearest emergency department, ` +
-  'or reach out to someone you trust and tell them how you are feeling. You are not alone.';
+  `I’m really glad you told me, and I’m sorry you’re going through this. You deserve support right now. Please call ${EMERGENCY_NUMBER} or go to the nearest emergency department, and if you can, tell someone you trust how you’re feeling and stay with them — please don’t be alone right now. You are not alone, and things can get better with help.`;
 
 interface Rule {
   id: string;
@@ -39,7 +38,22 @@ const RULES: Rule[] = [
     id: 'self_harm',
     level: 'emergency',
     reason: 'thoughts of self-harm',
-    patterns: [/suicid/, /kill (my ?self|myself)/, /end (my|it all|my life)\b/, /self[- ]?harm/, /want to die/, /khud ?kushi/],
+    patterns: [
+      /suicid/,
+      /kill (my ?self|myself)/,
+      /end (my|it all|my life)\b/,
+      /self[- ]?harm/,
+      /want to die/,
+      /khud ?kushi/,
+      /(don'?t|do not) want to (live|be alive|wake up)/,
+      /no (reason|point) (to|in) (live|living|going on)/,
+      /better off dead/,
+      /(hurt|harm|cut) (my ?self|myself)/,
+      /life (is not|isn'?t) worth/,
+      /wish i (was|were) dead/,
+      /jeena nahi/,
+      /mar ?jana chahta/,
+    ],
   },
   {
     id: 'chest_pain',

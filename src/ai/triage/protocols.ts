@@ -73,6 +73,13 @@ export interface Protocol {
   safetyNet: string[];
   /** Days after which a still-present symptom should be seen by a GP. */
   seeGpAfterDays: number;
+  /** Protocol-specific wording for the outcome (e.g. mental health). */
+  advice?: Partial<Record<'urgent' | 'gp' | 'self_care' | 'insufficient', string>>;
+  heading?: Partial<Record<'urgent' | 'gp' | 'self_care' | 'insufficient', string>>;
+  /** Opening line instead of the generic empathy line. */
+  opening?: string;
+  /** Softer acknowledgements between questions. */
+  gentle?: boolean;
 }
 
 /* ---------- answer helpers ---------- */
@@ -580,9 +587,127 @@ const remedies: Slot = {
   label: 'Medicines taken for this',
   question: 'Have you taken any medicine for this so far? If yes, which one and when? Say “none” if not.',
 };
+// Mood and mental health. Empathy first, then the standard safety questions (thoughts
+// of suicide/self-harm, a plan, feeling safe now, harming others), asked gently and
+// directly. A plan, not feeling safe, or thoughts of harming others -> crisis response
+// immediately; thoughts without a plan -> support today. Never treated as a physical
+// symptom (no "where is the pain?").
+const mental: Protocol = {
+  id: 'mental_health',
+  label: 'Mood or mental health',
+  match: /\b(depress\w*|anxi\w*|panic|stress\w*|hopeless\w*|worthless|low mood|(feel|feeling|felt)( very| so| really| quite)? (low|down|sad|empty|hopeless|numb|worthless|lonely)|lonely|can'?t cope|cannot cope|overwhelm\w*|overthink\w*|intrusive thoughts?|dark thoughts?|negative thoughts?|bad thoughts?|thoughts? (are|is|keep) (getting )?(worse|bad)|mental health|mentally|empty inside|udas\w*|pareshan\w*|ghabrahat|dil nahi lagta|sad)\b/,
+  seeGpAfterDays: 14,
+  gentle: true,
+  opening: 'Thank you for telling me — that takes courage, and I’m glad you reached out. I’m here to listen. I’ll ask a few gentle questions so I can point you to the right kind of help, and you can skip any of them.',
+  slots: [
+    {
+      id: 'feelings',
+      kind: 'multi',
+      label: 'Feelings',
+      prefillable: true,
+      question: 'Which of these have you been experiencing?',
+      options: [
+        { value: 'low', label: 'Low or sad mood', aliases: /\b(sad|low|depress\w*|down|udas\w*)\b/ },
+        { value: 'hopeless', label: 'Feeling hopeless or worthless', aliases: /hopeless|worthless|no hope|pointless|no future/ },
+        { value: 'anxious', label: 'Anxiety or constant worry', aliases: /anxi\w*|worr\w*|nervous|tension|ghabrah\w*/ },
+        { value: 'panic', label: 'Panic attacks', aliases: /panic/ },
+        { value: 'sleep', label: 'Sleep problems', aliases: /sleep|insomnia|awake at night/ },
+        { value: 'interest', label: 'Lost interest in things', aliases: /no interest|lost interest|don'?t enjoy|dil nahi lagta/ },
+        { value: 'thoughts', label: 'Upsetting or racing thoughts', aliases: /thoughts?|overthink\w*|racing mind|intrusive/ },
+        NONE,
+      ],
+    },
+    {
+      id: 'harm_thoughts',
+      kind: 'yesno',
+      label: 'Thoughts of suicide or self-harm',
+      critical: 'thoughts of self-harm',
+      question: 'When people feel this way, they sometimes have thoughts of ending their life or hurting themselves. Have you had thoughts like that recently? It’s okay to be honest — I’m asking so I can make sure you get the right support.',
+    },
+    {
+      id: 'plan',
+      kind: 'yesno',
+      label: 'Plan or method considered',
+      critical: 'a plan to harm yourself',
+      question: 'Thank you for telling me. Have you thought about how you might do it, or made any plans?',
+      askIf: (a) => yes(a, 'harm_thoughts'),
+    },
+    {
+      id: 'safe_now',
+      kind: 'yesno',
+      label: 'Able to stay safe right now',
+      critical: 'whether you are safe right now',
+      question: 'Do you feel able to keep yourself safe right now, for the next few hours?',
+      askIf: (a) => yes(a, 'harm_thoughts'),
+    },
+    {
+      id: 'harm_others',
+      kind: 'yesno',
+      label: 'Thoughts of harming someone else',
+      critical: 'thoughts of harming someone else',
+      question: 'Have you had any thoughts of harming someone else?',
+    },
+    { id: 'onset', kind: 'duration', label: 'How long', prefillable: true, question: 'How long have you been feeling like this?' },
+    { id: 'worsening', kind: 'yesno', label: 'Getting worse', question: 'Has it been getting worse recently?' },
+    {
+      id: 'daily',
+      kind: 'choice',
+      label: 'Effect on daily life',
+      question: 'How much is this affecting your daily life — work or studies, family, eating, looking after yourself?',
+      options: [
+        { value: 'little', label: 'A little', aliases: /\b(little|a bit|slightly|not much)\b/ },
+        { value: 'lot', label: 'A lot', aliases: /\b(a lot|lots|very much|badly|quite a lot)\b/ },
+        { value: 'cant', label: 'I can barely manage', aliases: /\b(barely|can'?t manage|cannot manage|unable|not at all)\b/ },
+      ],
+    },
+    { id: 'support', kind: 'yesno', label: 'Someone to talk to', question: 'Is there someone you trust that you can talk to — family, a friend, a teacher?' },
+    { id: 'previous', kind: 'yesno', label: 'Previous episodes or treatment', question: 'Have you felt like this before, or had help or treatment for your mental health?' },
+  ],
+  rules: (a) => {
+    const out: RedFlag[] = [];
+    if (yes(a, 'plan')) out.push(flag('suicide_plan', 'emergency', 'thoughts of ending your life with a plan'));
+    if (no(a, 'safe_now')) out.push(flag('not_safe', 'emergency', 'not feeling able to stay safe right now'));
+    if (yes(a, 'harm_others')) out.push(flag('harm_others', 'emergency', 'thoughts of harming someone else'));
+    if (yes(a, 'harm_thoughts')) out.push(flag('harm_thoughts', 'urgent', 'thoughts of ending your life or hurting yourself'));
+    if (choiceOf(a, 'daily') === 'cant') out.push(flag('cant_manage', 'urgent', 'finding it very hard to manage day to day'));
+    if (has(a, 'feelings', 'hopeless') && yes(a, 'worsening')) out.push(flag('hopeless_worse', 'urgent', 'feeling hopeless and getting worse'));
+    const h = hoursOf(a, 'onset');
+    if (h !== null && h >= 24 * 14) out.push(flag('two_weeks', 'gp', 'feeling this way for two weeks or more'));
+    if (yes(a, 'worsening')) out.push(flag('worsening_mood', 'gp', 'it is getting worse'));
+    if (choiceOf(a, 'daily') === 'lot') out.push(flag('daily_impact', 'gp', 'it is affecting daily life a lot'));
+    if (has(a, 'feelings', 'panic')) out.push(flag('panic', 'gp', 'panic attacks'));
+    return out;
+  },
+  advice: {
+    urgent: `Please talk to a doctor or a mental health professional today. If you can, tell someone you trust how you’re feeling and try not to be alone. If thoughts of harming yourself get stronger, call 1122 or go to the nearest emergency department straight away.`,
+    gp: 'Please book an appointment with a doctor (GP) or a psychologist in the next few days. Depression and anxiety are common and treatable — you don’t have to manage this alone.',
+    self_care: 'From what you’ve shared, this may ease with rest and support — but you don’t need to wait until it gets worse to ask for help. If it lasts more than two weeks or starts affecting your daily life, please see a doctor.',
+    insufficient: 'I don’t have enough information to guide you, and that’s okay. If you’re struggling, please talk to a doctor or someone you trust — reaching out is a good step.',
+  },
+  heading: {
+    urgent: 'Please get support today',
+    gp: 'Please see a doctor or psychologist soon',
+    self_care: 'Look after yourself — and reach out',
+  },
+  generalInfo: [
+    'Talk to someone you trust about how you feel — you don’t have to carry it alone.',
+    'Try to keep a routine: regular sleep, meals and a little daily movement or time outside.',
+    'Avoid alcohol and recreational drugs; they can make low mood and anxiety worse.',
+    'Depression and anxiety are common and treatable — a doctor or psychologist can help.',
+  ],
+  safetyNet: [
+    'You have thoughts of ending your life, or of harming yourself or someone else',
+    'You feel you can’t keep yourself safe',
+    'You stop eating or drinking, or can’t get out of bed for days',
+    'You hear or see things other people don’t',
+  ],
+};
+
 for (const p of [abdominal, headache, fever, cough, gut, general]) p.slots.push(remedies);
 
-export const PROTOCOLS: Protocol[] = [abdominal, headache, fever, cough, gut, general];
+// Mental health is matched first, so "I feel depressed and can't sleep" is never
+// treated as a physical symptom.
+export const PROTOCOLS: Protocol[] = [mental, abdominal, headache, fever, cough, gut, general];
 export const GENERAL_PROTOCOL = general;
 
 export function protocolById(id: string | null | undefined): Protocol | undefined {

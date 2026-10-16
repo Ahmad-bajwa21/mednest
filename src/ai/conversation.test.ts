@@ -46,3 +46,24 @@ describe('conversation intents', () => {
     expect(conversationalReply('question', 'records')).toBeNull();
   });
 });
+
+import { symptomOffer, topicForSymptom, wantsCheck } from './conversation';
+describe('separating information from symptom checks', () => {
+  it('offers a choice with empathy', () => {
+    const o = symptomOffer('I have stomach pain');
+    expect(o.text).toMatch(/sorry/i);
+    expect(o.quickReplies).toEqual(['Check my symptoms', 'Just general information']);
+    expect(symptomOffer('I feel depressed').text).toMatch(/gentle questions/);
+  });
+  it('understands the choice', () => {
+    expect(wantsCheck('Check my symptoms')).toBe(true);
+    expect(wantsCheck('yes please')).toBe(true);
+    expect(wantsCheck('Just general information')).toBe(false);
+    expect(wantsCheck('hmm')).toBeNull();
+  });
+  it('finds the topic in a described symptom', () => {
+    expect(topicForSymptom('I have stomach pain since yesterday')).toBe('stomach pain');
+    expect(topicForSymptom('I feel depressed and my thoughts are getting worse')).toBe('depression');
+    expect(topicForSymptom('feeling anxious all the time')).toBe('anxiety');
+  });
+});

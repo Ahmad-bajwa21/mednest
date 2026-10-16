@@ -84,6 +84,22 @@ recommend", §15 out-of-scope "diagnosis, risk scores, treatment suggestions"):
 - Deleting a document / profile / all data now also deletes the image files.
 - **Still open:** document images are not yet AES-256-GCM encrypted at rest (spec §10).
 
+## Mental health pathway (2026-10-16)
+- Mood/mental-health messages go to a dedicated protocol (never physical questions):
+  empathy first, then the standard safety questions asked directly and gently —
+  thoughts of suicide/self-harm, a plan, able to stay safe now, harming others.
+  Plan / not safe / harming others -> crisis message immediately; thoughts without a
+  plan -> "get support today"; "not sure" on a safety question cannot rule it out.
+- Self-harm phrases typed anywhere trigger the crisis message (red flags).
+- **Needs clinical review** (protocols-0.2-draft) and a **verified local crisis line**
+  for Pakistan to add next to 1122 — not included until the owner confirms a number.
+- General information and symptom checks are separate: describing your own symptom
+  outside the checker gets empathy and a choice (check / information), never an
+  automatic questionnaire; bare terms ("anxiety") get information.
+- Problems are recorded as a label (protocol name or cleaned symptom), with the
+  person's words separately — a question is never recorded as the problem.
+- Age: date of birth (or age) with validation and a visible "born …" basis.
+
 ## Live medical information (owner's call, 2026-10-13)
 - The AI has internet access, **completely free**, using the user's own connection: no
   API keys, no paid AI service, no MedNest server. Sources (all public, CORS-enabled):

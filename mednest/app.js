@@ -35,10 +35,27 @@ function fmtMonth(iso) {
   const d = new Date(iso && iso.length === 10 ? iso + 'T00:00:00' : iso);
   return isNaN(d) ? 'Undated' : d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
-function calcAge(birthYear) {
+// Age in whole years. Uses the exact date of birth when known (birthday not yet reached
+// this year counts), otherwise the birth year. Implausible values give null, never a guess.
+function calcAge(birthYear, dob) {
+  const now = new Date();
+  if (dob && /^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    const [y, m, d] = dob.split('-').map(Number);
+    let age = now.getFullYear() - y;
+    if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age--;
+    return age >= 0 && age <= 120 ? age : null;
+  }
   const y = parseInt(birthYear, 10);
-  return y ? new Date().getFullYear() - y : null;
+  if (!y || y < 1900 || y > now.getFullYear()) return null;
+  return now.getFullYear() - y;
 }
+const ageOf = (p) => (p ? calcAge(p.birthYear, p.dob) : null);
+// "34 years" with how we know it, so a wrong value is easy to spot and fix.
+const ageLabel = (p) => {
+  const a = ageOf(p);
+  if (a == null) return 'Age not set';
+  return `${a} year${a === 1 ? '' : 's'}${p.dob ? '' : p.ageApprox ? ' (approx.)' : ` (born ${p.birthYear})`}`;
+};
 function addDays(iso, n) { return core.addDaysLocal(iso, n); }
 function num(v) { const n = parseFloat(v); return isNaN(n) ? null : n; }
 const timeLabel = (t) => { const r = core.resolveTime(t); return r ? core.formatTime(r) : t; };
@@ -190,7 +207,7 @@ function buildSummary(pid) {
   const docs = byProfile(DB.documents, pid);
   if (!docs.length) return 'No records yet. Add a document to start this summary.';
   const parts = [];
-  const age = calcAge(p.birthYear);
+  const age = ageOf(p);
   const sex = p.sex && p.sex !== '-' ? p.sex : '';
   if (age != null) parts.push(`${age} years${sex ? ', ' + sex : ''}.`);
   const meds = activeMeds(pid);
@@ -375,7 +392,10 @@ function screenProfileForm(id) {
     <div class="screen">
       <label class="label">Name *</label><input id="f-name" value="${esc(draft.name)}" placeholder="e.g. Ammi" />
       <label class="label">Relation *</label><div class="chips" id="f-rel">${RELATIONS.map((r) => `<button class="chip ${draft.relation === r ? 'sel' : ''}" data-rel="${r}">${r}</button>`).join('')}</div>
-      <div class="row" style="gap:16px"><div class="grow"><label class="label">Birth year</label><input id="f-year" inputmode="numeric" value="${esc(draft.birthYear)}" placeholder="1962" /></div><div><label class="label">Sex</label><div class="chips" id="f-sex">${['F', 'M', '-'].map((s) => `<button class="chip ${draft.sex === s ? 'sel' : ''}" data-sex="${s}">${s}</button>`).join('')}</div></div></div>
+      <label class="label">Date of birth</label><input id="f-dob" type="date" max="${todayISO()}" min="1900-01-01" value="${esc(draft.dob || '')}" />
+      <details style="margin-top:8px" ${!draft.dob && draft.birthYear ? 'open' : ''}><summary class="caption" style="font-weight:600">Don’t know the exact date? Enter age instead</summary><label class="label">Age in years</label><input id="f-age" inputmode="numeric" placeholder="e.g. 34" value="${!draft.dob && ageOf(draft) != null ? ageOf(draft) : ''}" /></details>
+      <div class="caption" id="f-age-preview" style="margin-top:6px">${esc(ageLabel(draft))}</div>
+      <div><label class="label">Sex</label><div class="chips" id="f-sex">${['F', 'M', '-'].map((s) => `<button class="chip ${draft.sex === s ? 'sel' : ''}" data-sex="${s}">${s}</button>`).join('')}</div></div>
       <label class="label">Blood group (optional)</label><input id="f-blood" value="${esc(draft.bloodGroup)}" placeholder="O+" />
       <label class="label">Known allergies (optional)</label><input id="f-allergy" value="${esc(draft.allergies)}" placeholder="penicillin" />
       <label class="label">Colour</label><div class="dotpick" id="f-color">${DOT_COLORS.map((c) => `<span class="d ${draft.color === c ? 'sel' : ''}" data-color="${c}" style="background:${c}"></span>`).join('')}</div>
@@ -443,6 +463,7 @@ function screenOverview(id) {
       <h2 class="sec">Health overview</h2>
       <div class="stat-grid">
         <div class="stat"><div class="k">Allergies</div><div class="v" ${p.allergies ? 'style="color:var(--warn)"' : ''}>${esc(p.allergies || 'None recorded')}</div></div>
+        <div class="stat link-row" data-go="#/profile/${id}/edit"><div class="k">Age</div><div class="v">${esc(ageLabel(p))}</div></div>
         <div class="stat"><div class="k">Medicines</div><div class="v">${meds.length} current</div></div>
         <div class="stat"><div class="k">Latest result</div><div class="v">${lastResult}</div></div>
         <div class="stat"><div class="k">Last symptom check</div><div class="v">${lastCheck ? `${esc(lastCheck.complaint)} · ${fmtDate(lastCheck.createdAt.slice(0, 10))}` : 'None'}</div></div>
@@ -817,7 +838,7 @@ function screenEpisode(id, eid) {
 function triageContext(id) {
   const p = getProfile(id);
   return {
-    ageYears: calcAge(p.birthYear),
+    ageYears: ageOf(p),
     allergies: p.allergies || null,
     activeMedicines: activeMeds(id).map((m) => `${m.name}${m.dose ? ' ' + m.dose : ''}`),
     priorEpisodes: byProfile(DB.episodes, id).map((e) => ({ protocolId: e.protocolId || '', complaint: e.complaint, date: e.createdAt.slice(0, 10), disposition: e.disposition })),
@@ -890,7 +911,7 @@ function saveAssessment(pid, state, messages) {
   const id = uid();
   const summary = state.disposition === 'emergency' ? messages.map((m) => m.text).join('\n') : (() => { const o = core.computeOutcome(state, triageContext(pid)); return `${o.summary}\n\n${o.advice}`; })();
   const protocol = core.PROTOCOLS.find((x) => x.id === state.protocolId);
-  const complaint = state.complaint || protocol?.label || 'Symptom check';
+  const complaint = core.complaintLabel(state);
   DB.episodes.push({ id, profileId: pid, protocolId: state.protocolId, complaint, answers: state.answers, flags: state.flags, disposition: state.disposition, summary, engineVersion: core.TRIAGE_ENGINE_VERSION, createdAt: nowIso() });
   DB.chats.push({ id: uid(), profileId: pid, episodeId: id, transcript: state.transcript, createdAt: nowIso() });
   audit(pid, 'episode', id, 'create', { note: `${complaint} → ${state.disposition}` });
@@ -1118,16 +1139,16 @@ function chatTriageBubble(m) {
   if (m.kind === 'emergency') return `<div class="card bubble-emergency"><div class="name row" style="color:var(--danger);gap:8px">${icon('alert', 20)} Get help now</div><div class="msg">${esc(m.text)}</div><a class="btn danger" href="tel:${core.EMERGENCY_NUMBER}">${icon('phone', 18)} Call ${core.EMERGENCY_NUMBER}</a></div>`;
   return `<div class="card ${m.kind === 'summary' ? 'bubble-summary' : 'bubble-bot'}"><div class="who-label">${icon('symptom', 14)} MedNest symptom check${m.kind === 'summary' ? ' · rules-based, not a diagnosis' : ''}</div><div class="msg">${esc(m.text)}</div>${m.saved ? `<div class="caption" style="margin-top:8px">Saved to medical history. <a class="inline" href="#/profile/${m.pid}/visit">Doctor visit summary</a></div>` : ''}</div>`;
 }
-async function startChatTriage(pid, text) {
+async function startChatTriage(pid, text, alreadyShown = false) {
   const chat = window.__chat;
   const ctx = triageContext(pid);
   chat.triage = core.startTriage(ctx).state;
   chat.triageSaved = false;
-  return continueChatTriage(pid, text);
+  return continueChatTriage(pid, text, alreadyShown);
 }
-async function continueChatTriage(pid, text) {
+async function continueChatTriage(pid, text, alreadyShown = false) {
   const chat = window.__chat;
-  chat.log.push({ role: 'user', text });
+  if (!alreadyShown) chat.log.push({ role: 'user', text });
   const r = await core.respond(chat.triage, text, triageContext(pid));
   chat.triage = r.state;
   const msgs = r.messages.map((m) => ({ role: 'bot', triage: true, kind: m.kind, text: m.text, quickReplies: m.quickReplies, pid }));
@@ -1191,7 +1212,7 @@ function visitData(id) {
   const p = getProfile(id);
   const period = window.__visitPeriod || '14';
   const since = period === 'all' ? null : new Date(Date.now() - (+period) * 86400000).toISOString();
-  const profile = { name: p.name, ageYears: calcAge(p.birthYear), sex: p.sex, allergies: p.allergies };
+  const profile = { name: p.name, ageYears: ageOf(p), sex: p.sex, allergies: p.allergies };
   const summary = core.buildVisitSummary({
     profile,
     episodes: byProfile(DB.episodes, id),
@@ -1314,7 +1335,7 @@ function screenVisitSummary(id) {
 function screenSummary(id) {
   const p = getProfile(id);
   if (!p) return go('#/');
-  const age = calcAge(p.birthYear);
+  const age = ageOf(p);
   const meds = byProfile(DB.medicines, id).filter((m) => ['active', 'paused', 'pending'].includes(medStatus(m)));
   const results = latestResults(id, 6);
   const notes = patternNotes(id);
@@ -1396,6 +1417,13 @@ function wire() {
     $('#f-rel')?.querySelectorAll('[data-rel]').forEach((b) => b.addEventListener('click', () => { d.relation = b.dataset.rel; selOne($('#f-rel'), b); }));
     $('#f-sex')?.querySelectorAll('[data-sex]').forEach((b) => b.addEventListener('click', () => { d.sex = b.dataset.sex; selOne($('#f-sex'), b); }));
     $('#f-color')?.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => { d.color = b.dataset.color; $('#f-color').querySelectorAll('.d').forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); }));
+    const preview = () => {
+      const dob = $('#f-dob').value; const a = $('#f-age')?.value.trim();
+      const draftAge = dob ? { dob } : a && /^\d{1,3}$/.test(a) ? { birthYear: String(new Date().getFullYear() - +a), ageApprox: true } : {};
+      $('#f-age-preview').textContent = ageLabel(draftAge);
+    };
+    $('#f-dob')?.addEventListener('input', preview);
+    $('#f-age')?.addEventListener('input', preview);
     $('#f-save').addEventListener('click', () => saveProfile(d));
     $('#f-del')?.addEventListener('click', () => deleteProfile(d.id));
   }
@@ -1409,8 +1437,34 @@ function wire() {
       const chat = window.__chat;
       // A symptom check is running in this chat: the message is an answer to it.
       if (chat.triage && !chat.triage.done) return continueChatTriage(id, text);
+      // We offered a symptom check: act on their choice.
+      if (chat.pendingSymptom) {
+        const choice = core.wantsCheck(text);
+        const described = chat.pendingSymptom;
+        chat.pendingSymptom = null;
+        if (choice === true) { chat.log.push({ role: 'user', text }); return startChatTriage(id, described, true); }
+        if (choice === false) {
+          chat.log.push({ role: 'user', text });
+          chat.log.push({ role: 'bot', text: 'Of course. Here’s some general information — and you can ask me to check your symptoms anytime.', conversational: true });
+          renderAsk(id);
+          return enrichOnline(id, `what is ${core.topicForSymptom(described)}`, { answer: '' }, null);
+        }
+      }
       const intent = core.classifyMessage(text);
-      if (intent === 'symptom') return startChatTriage(id, text);
+      // Describing your own symptom: empathy, then you choose — a check or information.
+      if (intent === 'symptom') {
+        const o = core.symptomOffer(text, chat.log.length);
+        chat.pendingSymptom = text;
+        chat.log.push({ role: 'user', text }, { role: 'bot', text: o.text, quickReplies: o.quickReplies, conversational: true });
+        renderAsk(id);
+        return window.scrollTo(0, document.body.scrollHeight);
+      }
+      // A bare health term ("anxiety", "headaches"): general information from trusted sources.
+      if (intent === 'topic') {
+        chat.log.push({ role: 'user', text }, { role: 'bot', text: `Here’s what trusted medical sources say about ${text.trim()}. If you’re experiencing it yourself, tell me and I can ask a few questions.`, conversational: true });
+        renderAsk(id);
+        return enrichOnline(id, text, { answer: '' }, null);
+      }
       const small = intent === 'unclear' ? null : core.conversationalReply(intent, 'records', chat.log.length);
       if (small) {
         chat.log.push({ role: 'user', text }, { role: 'bot', text: small, conversational: true });
@@ -1474,7 +1528,20 @@ function selOne(container, btn) { container.querySelectorAll('.chip').forEach((c
 /* ============================== actions ============================== */
 function saveProfile(d) {
   const name = $('#f-name').value.trim();
-  d.birthYear = $('#f-year').value.trim();
+  // Age from the date of birth, or from an entered age; validated, never guessed.
+  const dob = $('#f-dob').value;
+  const ageTyped = $('#f-age') ? $('#f-age').value.trim() : '';
+  if (dob) {
+    if (dob > todayISO()) return flash('The date of birth can’t be in the future.');
+    if (calcAge(null, dob) == null) return flash('Please check the date of birth.');
+    d.dob = dob; d.birthYear = dob.slice(0, 4); d.ageApprox = false;
+  } else if (ageTyped) {
+    const a = parseInt(ageTyped, 10);
+    if (!/^\d{1,3}$/.test(ageTyped) || a > 120) return flash('Please enter the age as a number of years (0–120).');
+    d.dob = ''; d.birthYear = String(new Date().getFullYear() - a); d.ageApprox = true;
+  } else {
+    d.dob = ''; d.birthYear = ''; d.ageApprox = false;
+  }
   d.bloodGroup = $('#f-blood').value.trim();
   d.allergies = $('#f-allergy').value.trim();
   if (!name) return flash('Please enter a name.');
@@ -1644,7 +1711,7 @@ function renderHealthInfo() {
           ? `<div class="caption warn-text">The in-browser AI couldn’t load: ${esc(w.progress)}. Answers from trusted sources still work.</div>`
           : `<details class="card"><summary>Optional: plain-language summaries by an in-browser AI</summary><div class="caption" style="margin:6px 0">Downloads an open-source model once (~1 GB) and runs it on this device. Needs Chrome or Edge with WebGPU. It only summarises the sources shown.</div><button class="btn secondary" id="hi-load">Turn on in-browser AI</button></details>`;
   const lastA = [...w.log].reverse().find((m) => m.role !== 'user');
-  const replyChips = lastA?.quickReplies?.length && w.triage && !w.triage.done ? `<div class="chips" style="margin-top:8px">${lastA.quickReplies.map((c) => `<button class="chip" data-hq="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
+  const replyChips = lastA?.quickReplies?.length && ((w.triage && !w.triage.done) || w.pendingSymptom) ? `<div class="chips" style="margin-top:8px">${lastA.quickReplies.map((c) => `<button class="chip" data-hq="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
   const chips = w.log.length ? '' : `<div class="chips">${['What is gout?', 'What is warfarin used for?', 'Migraine', 'High blood pressure'].map((c) => `<button class="chip" data-hq="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
   render(`
     ${topbar('#/', 'General health questions')}
@@ -1703,16 +1770,40 @@ async function sendHealthMsg(text) {
   }
   // A symptom check running here: this message answers it.
   if (w.triage && !w.triage.done) return healthTriage(q);
+  // We offered "check my symptoms" or "general information": act on their choice.
+  if (w.pendingSymptom) {
+    const choice = core.wantsCheck(q);
+    const described = w.pendingSymptom;
+    w.pendingSymptom = null;
+    if (choice === true) { w.triage = core.startTriage(genericTriageContext()).state; return healthTriage(described); }
+    if (choice === false) return healthLookup(described, { kind: 'topic', term: core.topicForSymptom(described) });
+  }
   const intent = core.classifyMessage(q);
-  if (intent === 'symptom') { w.triage = core.startTriage(genericTriageContext()).state; return healthTriage(q); }
+  // Describing your own symptom: empathy first, and you choose what happens next.
+  if (intent === 'symptom') {
+    const o = core.symptomOffer(q, w.log.length);
+    w.pendingSymptom = q;
+    w.log.push({ role: 'assistant', conversational: true, text: o.text, quickReplies: o.quickReplies });
+    return renderHealthInfo();
+  }
+  // A bare health term ("headaches", "anxiety") is a request for information.
+  if (intent === 'topic') return healthLookup(q, core.planEnrichment(`what is ${q}`, '', [], {}) || { kind: 'topic', term: q });
   const small = intent === 'unclear' ? null : core.conversationalReply(intent, 'general', w.log.length);
   if (small) { w.log.push({ role: 'assistant', conversational: true, text: small }); return renderHealthInfo(); }
   if (!online()) {
     w.log.push({ role: 'assistant', text: 'You’re offline. Connect to the internet to look this up in trusted medical sources.' });
     return renderHealthInfo();
   }
-  // Medicine name → drug lookup; otherwise the topic of the question.
-  const plan = core.planEnrichment(q, '', [], {}) || { kind: 'topic', term: core.topicOf(q) || q };
+  return healthLookup(q, core.planEnrichment(q, '', [], {}) || { kind: 'topic', term: core.topicOf(q) || q });
+}
+
+// Look a question up in trusted sources (and optionally summarise with the in-browser AI).
+async function healthLookup(q, plan) {
+  const w = webllm;
+  if (!online()) {
+    w.log.push({ role: 'assistant', text: 'You’re offline. Connect to the internet to look this up in trusted medical sources.' });
+    return renderHealthInfo();
+  }
   const msg = { role: 'assistant', pending: true, text: 'Checking trusted medical sources…' };
   w.log.push(msg);
   w.busy = true; renderHealthInfo();

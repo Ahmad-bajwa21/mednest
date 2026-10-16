@@ -143,8 +143,50 @@ export async function lookupMedicineOnline(name: string, fetchFn: FetchFn, other
   return out;
 }
 
+// Everyday words → the term MedlinePlus knows, and common topics → ICD-10 code, so
+// "headaches", "stomach pain" or "anxiety" always reach the right MedlinePlus page.
+const ALIASES: Record<string, string> = {
+  headaches: 'headache', 'head ache': 'headache', 'head pain': 'headache', 'sar dard': 'headache', migraines: 'migraine',
+  'stomach pain': 'abdominal pain', 'stomach ache': 'abdominal pain', stomachache: 'abdominal pain', 'tummy ache': 'abdominal pain', 'tummy pain': 'abdominal pain', 'belly pain': 'abdominal pain', 'pet dard': 'abdominal pain', 'abdominal pains': 'abdominal pain',
+  anxious: 'anxiety', 'anxiety attack': 'panic attack', 'panic attacks': 'panic attack', depressed: 'depression', 'low mood': 'depression', stressed: 'stress',
+  'high blood pressure': 'hypertension', bp: 'hypertension', 'blood pressure': 'hypertension', sugar: 'diabetes', 'blood sugar': 'diabetes', 'sugar disease': 'diabetes',
+  acidity: 'heartburn', 'acid reflux': 'heartburn', gerd: 'heartburn', 'loose motion': 'diarrhea', 'loose motions': 'diarrhea', diarrhoea: 'diarrhea', vomiting: 'nausea and vomiting', nausea: 'nausea and vomiting',
+  'sore throat': 'sore throat', 'common cold': 'cold', flu: 'influenza', fevers: 'fever', bukhar: 'fever', coughing: 'cough', khansi: 'cough', 'back ache': 'back pain', backache: 'back pain', 'kamar dard': 'back pain',
+  dizzy: 'dizziness', 'cant sleep': 'insomnia', "can't sleep": 'insomnia', sleeplessness: 'insomnia', tired: 'fatigue', tiredness: 'fatigue', anaemia: 'anemia', 'urine infection': 'urinary tract infection', uti: 'urinary tract infection',
+};
+const ICD10: Record<string, string> = {
+  headache: 'R51.9', migraine: 'G43.909', 'abdominal pain': 'R10.9', anxiety: 'F41.9', 'panic attack': 'F41.0', depression: 'F32.A', stress: 'F43.9', insomnia: 'G47.00',
+  fever: 'R50.9', cough: 'R05.9', cold: 'J00', influenza: 'J11.1', 'sore throat': 'J02.9', diarrhea: 'R19.7', 'nausea and vomiting': 'R11.2', constipation: 'K59.00',
+  'back pain': 'M54.9', dizziness: 'R42', 'chest pain': 'R07.9', fatigue: 'R53.83', rash: 'R21', heartburn: 'R12', gastritis: 'K29.70', hypertension: 'I10', diabetes: 'E11.9',
+  asthma: 'J45.909', gout: 'M10.9', anemia: 'D64.9', 'high cholesterol': 'E78.5', cholesterol: 'E78.5', 'urinary tract infection': 'N39.0', typhoid: 'A01.00', dengue: 'A90', malaria: 'B54',
+};
+
+/** "Headaches" → "headache", "stomach pain" → "abdominal pain". */
+export function canonicalTopic(term: string): string {
+  const t = term.toLowerCase().replace(/[^a-z' ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (ALIASES[t]) return ALIASES[t]!;
+  if (ICD10[t]) return t;
+  const singular = t.replace(/\b(\w{4,}?)(es|s)\b/g, (w, stem, end) => (/(diabetes|stress|abscess|lupus|herpes|measles|mumps|tetanus|rabies|scabies|piles)$/.test(w) ? w : end === 'es' && /(ch|sh|ss|x)$/.test(stem) ? stem : stem + (end === 'es' ? 'e' : '')));
+  return ALIASES[singular] ?? singular;
+}
+
 /** A symptom or condition, from MedlinePlus (via its ICD-10 code), else Wikipedia. */
 export async function lookupTopicOnline(term: string, fetchFn: FetchFn): Promise<OnlineTopicInfo> {
+  const canonical = canonicalTopic(term);
+  const known = ICD10[canonical];
+  if (known) {
+    const mp = await getJson(fetchFn, `${CONNECT}?mainSearchCriteria.v.cs=2.16.840.1.113883.6.90&mainSearchCriteria.v.c=${enc(known)}&knowledgeResponseType=application/json`);
+    const e = mp?.feed?.entry?.[0];
+    if (e?.summary?._value) {
+      return {
+        query: term,
+        title: e.title?._value ?? canonical,
+        summary: cleanText(e.summary._value, 700),
+        sources: [{ name: 'MedlinePlus (US National Library of Medicine)', url: String(e.link?.[0]?.href ?? 'https://medlineplus.gov').split('?')[0]! }],
+      };
+    }
+  }
+  term = canonical;
   const t = await getJson(fetchFn, `${TABLES}?terms=${enc(term)}&df=primary_name,icd10cm_codes&maxList=3`);
   const rows: Array<[string, string]> = Array.isArray(t?.[3]) ? t[3] : [];
   for (const [title, codes] of rows) {

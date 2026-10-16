@@ -20,6 +20,7 @@ export type ConvIntent =
   | 'stop'
   | 'restart'
   | 'symptom'
+  | 'topic'
   | 'question'
   | 'unclear';
 
@@ -57,17 +58,43 @@ const SYMPTOM_WORDS =
   /\b(pain|painful|ache|aches|aching|hurts?|hurting|sore|fever|temperature|cough|coughing|cold|flu|vomit\w*|throwing up|nause\w*|diarrh\w*|loose motions?|constipat\w*|dizz\w*|faint\w*|headaches?|migraines?|rash(es)?|itch\w*|swell\w*|swollen|bleed\w*|blood|burn\w*|cramps?|tired|fatigue|weak\w*|numb\w*|breath\w*|wheez\w*|sneez\w*|runny|blocked nose|chills|sweat\w*|infection|injur\w*|sprain|bruise|lump|stiff|insomnia|can't sleep|anxious|anxiety|panic|depress\w*|unwell|sick|ill|dard|bukhar|khansi|ulti|dast|chakkar|kamzori|zukam|nazla)\b/;
 const BODY_PARTS =
   /\b(stomach|tummy|belly|abdomen|head|chest|back|neck|throat|ear|ears|eye|eyes|nose|tooth|teeth|knee|leg|legs|arm|arms|hand|foot|feet|joint|joints|skin|heart|kidney|side|shoulder|hip|pet|sar|seena|kamar|gala)\b/;
-const I_HAVE = /\b(i have|i've got|i got|i am having|i'm having|i've been having|i feel|i'm feeling|i am feeling|i keep|my \w+ (hurts?|is hurting|aches|is aching|is sore|is swollen|is bleeding)|mujhe|mera|meri|mere)\b/;
+const I_HAVE = /^\s*(feeling|having|been having|been feeling|got|suffering from)\b|\b(suffering from|i have|i've got|i got|i am having|i'm having|i've been having|i feel|i'm feeling|i am feeling|i keep|my \w+ (hurts?|is hurting|aches|is aching|is sore|is swollen|is bleeding)|mujhe|mera|meri|mere)\b/;
 
-/** True when the person is describing their own symptom ("I have stomach pain"). */
+// Mood and mental-health words (English + common Roman Urdu).
+const MENTAL =
+  /\b(depress\w*|anxi\w*|panic\w*|stress\w*|sad|sadness|hopeless\w*|worthless|low mood|(feel|feeling|felt)( very| so| really| quite)? (low|down|sad|empty|hopeless|numb|worthless|lonely|anxious|stressed)|lonely|loneliness|can't cope|cannot cope|overwhelm\w*|overthink\w*|intrusive thoughts?|dark thoughts?|negative thoughts?|bad thoughts?|thoughts? (are|is|keep) (getting )?(worse|bad)|mental health|mentally|crying|empty inside|numb inside|suicid\w*|self[- ]?harm|kill myself|end my life|don't want to live|udas\w*|pareshan\w*|tension|ghabrahat|dil nahi lagta)\b/;
+
+/** Mood / mental-health concern (depression, anxiety, worrying thoughts). */
+export function isMentalHealth(text: string): boolean {
+  return MENTAL.test(expandShorthand(text));
+}
+
+const QUESTION_START = /^\s*(what|whats|what's|why|how|which|when|where|who|is|are|can|could|should|does|do|tell me about|explain|define|list)\b/;
+
+/**
+ * True when the person is describing their OWN symptom ("I have stomach pain",
+ * "my head hurts", "I feel depressed"). A question ("why do I have headaches?",
+ * "what is anxiety?") is never a symptom report.
+ */
 export function isSymptomStatement(text: string): boolean {
   const t = expandShorthand(text);
+  if (QUESTION_START.test(t) || /\?\s*$/.test(t)) return false;
   if (/\b(you|your)\b/.test(t) && !/\bmy\b/.test(t)) return false; // talking about the assistant
-  const symptom = SYMPTOM_WORDS.test(t) || (BODY_PARTS.test(t) && /\b(pain|hurts?|ache|sore|problem|issue|dard)\b/.test(t));
-  if (!symptom) return false;
-  // "what is fever?" is a question, not a report.
-  if (/^\s*(what|whats|what's|why|how|which|tell me about|explain|define)\b/.test(t) && !I_HAVE.test(t)) return false;
-  return I_HAVE.test(t) || t.trim().split(' ').length <= 6;
+  const symptom = SYMPTOM_WORDS.test(t) || MENTAL.test(t) || (BODY_PARTS.test(t) && /\b(pain|hurts?|ache|sore|problem|issue|dard)\b/.test(t));
+  return symptom && I_HAVE.test(t);
+}
+
+/** A bare health term with no first person ("headaches", "anxiety", "stomach pain"). */
+export function isHealthTopic(text: string): boolean {
+  const t = expandShorthand(text);
+  const words = t.trim().split(' ').filter(Boolean);
+  if (!words.length || words.length > 5 || I_HAVE.test(t) || QUESTION_START.test(t) || /\?\s*$/.test(t)) return false;
+  return (
+    SYMPTOM_WORDS.test(t) ||
+    MENTAL.test(t) ||
+    (BODY_PARTS.test(t) && /\b(pain|ache|problem|dard)\b/.test(t)) ||
+    /\b(diabetes|blood pressure|hypertension|asthma|cholesterol|thyroid|gout|arthritis|allergy|allergies|typhoid|dengue|malaria|covid|ulcer|acidity|gastritis|piles|hepatitis|anemia|anaemia)\b/.test(t)
+  );
 }
 
 export function classifyMessage(text: string): ConvIntent {
@@ -81,6 +108,7 @@ export function classifyMessage(text: string): ConvIntent {
   if (/\b(not (a )?(good|great|helpful|smart|useful)|useless|stupid|dumb|bad (ai|bot|app)|terrible|worst|you suck|not working|doesn't work|don't understand me|you don't understand|robotic|annoying|waste of time|bekar|bakwas)\b/.test(t) && /\b(you|your|this|it|ai|bot|app|chat)\b/.test(t))
     return 'complaint';
   if (isSymptomStatement(text)) return 'symptom';
+  if (isHealthTopic(text)) return 'topic';
   if (/\b(who are you|what are you|are you (a |an )?(bot|robot|ai|human|real|doctor|person)|your name|who made you|who built you|ap kon|aap kaun|tum kaun)\b/.test(t)) return 'identity';
   if (/\b(what can you do|how (can|do) you help|what do you do|help me|how does this work|how to use)\b/.test(t) || /^\s*help\s*$/.test(t)) return 'capabilities';
   if (/\b(how are you|how're you|how r you|how are things|how is it going|how's it going|what about you|kaise ho|kya haal)\b/.test(t)) return 'how_are_you';
@@ -142,7 +170,9 @@ export function conversationalReply(intent: ConvIntent, scope: ChatScope, seed =
 }
 
 /** Short acknowledgements between symptom questions, so it reads like a conversation. */
-export function acknowledgement(seed: number): string {
+export function acknowledgement(seed: number, gentle = false): string {
+  // Neutral on purpose: it follows yes AND no answers to sensitive questions.
+  if (gentle) return pick(['Thank you for sharing that.', 'Thank you.', 'Thank you for being open with me.', 'I appreciate you telling me.'], seed);
   return pick(['Got it.', 'Thanks.', 'Okay, thank you.', 'Thanks — that helps.', 'Understood.', 'Okay.'], seed);
 }
 
@@ -155,4 +185,41 @@ export function empathyLine(label: string, seed: number): string {
      `Thanks for telling me. I’ll ask a few short questions about the ${what} — you can type freely or tap an option.`],
     seed,
   );
+}
+
+/* ---------- keeping general information and symptom checks separate ---------- */
+export const OFFER_CHECK = 'Check my symptoms';
+export const OFFER_INFO = 'Just general information';
+
+/**
+ * Reply when someone describes their own symptom outside the symptom checker: empathy
+ * first, then let them choose — information, or a short symptom check. Nothing is
+ * started without their say-so.
+ */
+export function symptomOffer(text: string, seed = 0): { text: string; quickReplies: string[] } {
+  const mental = isMentalHealth(text);
+  const open = mental
+    ? pick(['I’m really sorry you’re feeling this way — thank you for telling me.', 'That sounds really hard, and I’m glad you said something.'], seed)
+    : pick(['I’m sorry you’re dealing with that.', 'That sounds uncomfortable — I’m sorry.'], seed);
+  const offer = mental
+    ? 'Would you like me to ask a few gentle questions so I can point you to the right support, or would you prefer some general information first?'
+    : 'Would you like me to ask a few quick questions to work out how soon you should get care, or would you prefer some general information about it?';
+  return { text: `${open} ${offer}`, quickReplies: [OFFER_CHECK, OFFER_INFO] };
+}
+
+export function wantsCheck(text: string): boolean | null {
+  const t = expandShorthand(text);
+  if (/check my symptoms|^\s*(yes|yeah|yep|ok|okay|sure|please|haan|ji)\b|ask (me )?(the |a few )?questions|check (it|me)/.test(t)) return true;
+  if (/general information|just (info|information)|^\s*(no|nope|nah|not now|no thanks|nahi)\b|information only|tell me about/.test(t)) return false;
+  return null;
+}
+
+/** The health topic to look up for a described symptom ("I have stomach pain" → "stomach pain"). */
+export function topicForSymptom(text: string): string {
+  const t = expandShorthand(text);
+  if (isMentalHealth(t)) return /panic/.test(t) ? 'panic attack' : /anxi|worr|nervous|ghabrah/.test(t) ? 'anxiety' : /stress|tension/.test(t) ? 'stress' : /sleep|insomnia/.test(t) ? 'insomnia' : 'depression';
+  return t
+    .replace(/\b(i have|i've got|i got|i am having|i'm having|i've been having|i feel|i'm feeling|i am feeling|i keep getting|i keep|feeling|having|suffering from|my|a|an|some|really|very|bad|severe|since \w+|for \w+ \w+|today|yesterday|this morning|and|it|is|hurts?|hurting)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

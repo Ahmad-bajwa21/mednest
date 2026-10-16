@@ -25,13 +25,27 @@ export function ProfileForm({ existing }: { existing?: ProfileRow }) {
   const [colour, setColour] = useState(existing?.colour ?? PROFILE_DOT_COLORS[0]);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  // Birth year or age (people often type their age); validated, never guessed.
+  const thisYear = new Date().getFullYear();
+  const resolveYear = (raw: string): number | null | 'invalid' => {
+    const t = raw.trim();
+    if (!t) return null;
+    if (!/^d{1,4}$/.test(t)) return 'invalid';
+    const n = parseInt(t, 10);
+    if (n <= 120) return thisYear - n; // an age
+    return n >= 1900 && n <= thisYear ? n : 'invalid';
+  };
+  const resolved = resolveYear(birthYear);
+  const ageHint = resolved === 'invalid' ? 'Please enter a birth year (e.g. 1990) or an age in years.' : resolved ? `Age: ${thisYear - resolved} years (born ${resolved})` : undefined;
+
   const onSave = async () => {
     if (!name.trim()) return setLocalError('Please enter a name.');
     if (!relation) return setLocalError('Please choose a relation.');
+    if (resolved === 'invalid') return setLocalError('Please enter a birth year (e.g. 1990) or an age in years (0–120).');
     const fields = {
       name: name.trim(),
       relation,
-      birthYear: birthYear ? parseInt(birthYear, 10) : null,
+      birthYear: resolved,
       sex,
       bloodGroup: bloodGroup.trim() || null,
       allergies: allergies.trim() || null,
@@ -72,7 +86,7 @@ export function ProfileForm({ existing }: { existing?: ProfileRow }) {
 
       <View style={{ flexDirection: 'row', gap: space.lg }}>
         <View style={{ flex: 1 }}>
-          <Field label="Birth year" value={birthYear} onChangeText={setBirthYear} keyboardType="number-pad" placeholder="1962" />
+          <Field label="Birth year or age" value={birthYear} onChangeText={setBirthYear} keyboardType="number-pad" placeholder="e.g. 1990 or 34" hint={ageHint} uncertain={resolved === 'invalid'} />
         </View>
         <View>
           <Text variant="label" muted style={{ marginTop: space.md, marginBottom: space.xs }}>

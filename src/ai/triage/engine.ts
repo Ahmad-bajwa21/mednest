@@ -63,6 +63,7 @@ export interface TriageState {
 
 export interface TriageOutcome {
   disposition: Disposition;
+  heading?: string;
   flags: RedFlag[];
   summary: string;
   advice: string;
@@ -274,8 +275,19 @@ export async function respond(
     messages.push(...finishEmergency(state, ctx, state.flags));
     return { state, messages };
   }
-  if (highestLevel(state.flags) === 'urgent' && !messages.some((m) => m.kind === 'info') && !state.transcript.some((t) => t.text.startsWith(URGENT_NOTE))) {
-    messages.push(say(state, ctx, { kind: 'info', text: `${URGENT_NOTE} ${state.flags.filter((f) => f.level === 'urgent').map((f) => f.reason).join('; ')}. I’ll ask just a few more questions.` }));
+  let urgentNoted = false;
+  if (highestLevel(state.flags) === 'urgent' && !messages.some((m) => m.kind === 'info') && !state.transcript.some((t) => t.text.startsWith(URGENT_NOTE) || t.text.startsWith(GENTLE_NOTE))) {
+    urgentNoted = true;
+    // After a disclosure (e.g. thoughts of self-harm) a clinical "see a doctor because
+    // of…" line feels cold; the gentle protocols reassure and keep going instead.
+    messages.push(
+      say(state, ctx, {
+        kind: 'info',
+        text: protocol.gentle
+          ? `${GENTLE_NOTE} I want to make sure you’re safe, so I’ll ask a couple more questions.`
+          : `${URGENT_NOTE} ${state.flags.filter((f) => f.level === 'urgent').map((f) => f.reason).join('; ')}. I’ll ask just a few more questions.`,
+      }),
+    );
   }
 
   // 6. Next relevant question, or the outcome.
@@ -285,7 +297,8 @@ export async function respond(
     // Read like a conversation: empathy when we start, a short thanks after each answer.
     const q = questionFor(next, state, ctx);
     const label = protocol.id === 'general' ? 'this' : protocol.label;
-    const prefix = justStarted ? empathyLine(label, seed) : answeredNow ? acknowledgement(seed) : '';
+    // No acknowledgement right after the urgent note, or when the question already thanks them.
+    const prefix = justStarted ? protocol.opening ?? empathyLine(label, seed) : answeredNow && !urgentNoted && !/^Thank you/.test(q.text) ? acknowledgement(seed, protocol.gentle) : '';
     messages.push(say(state, ctx, { ...q, text: prefix ? `${prefix} ${q.text}` : q.text }));
     return { state, messages };
   }
@@ -318,6 +331,7 @@ function whyWeAsk(slot: Slot): string {
 }
 
 const URGENT_NOTE = 'Please arrange to see a doctor today because of';
+const GENTLE_NOTE = 'Thank you for trusting me with that.';
 
 function structuredCloneState(s: TriageState): TriageState {
   return JSON.parse(JSON.stringify(s)) as TriageState;
@@ -337,9 +351,14 @@ function finishEmergency(state: TriageState, ctx: TriageContext, flags: RedFlag[
   state.done = true;
   state.disposition = 'emergency';
   state.pendingSlot = null;
-  const selfHarm = flags.some((f) => f.id === 'self_harm');
+  const selfHarm = flags.some((f) => f.id === 'self_harm' || f.id === 'suicide_plan' || f.id === 'not_safe');
+  const harmOthers = flags.some((f) => f.id === 'harm_others');
   const reasons = flags.filter((f) => f.level === 'emergency').map((f) => f.reason);
-  const text = selfHarm ? SELF_HARM_MESSAGE : `You mentioned ${joinAnd(reasons)}. ${EMERGENCY_MESSAGE}`;
+  const text = selfHarm
+    ? SELF_HARM_MESSAGE
+    : harmOthers
+      ? `Thank you for being honest with me — that matters. Please call ${EMERGENCY_NUMBER} or go to the nearest emergency department now, and if you can, move to a safe place and ask someone you trust to be with you. Help is available, and you don’t have to handle this alone.`
+      : `You mentioned ${joinAnd(reasons)}. ${EMERGENCY_MESSAGE}`;
   return [say(state, ctx, { kind: 'emergency', text })];
 }
 
@@ -477,8 +496,9 @@ export function computeOutcome(state: TriageState, ctx: TriageContext): TriageOu
     disposition = sev !== null && sev >= 6 ? 'gp' : 'self_care';
   }
 
-  let advice = ADVICE[disposition];
-  if (disposition === 'self_care') advice += ` If it is not better within ${protocol.seeGpAfterDays} day${protocol.seeGpAfterDays === 1 ? '' : 's'}, or it gets worse, see a doctor.`;
+  const own = disposition !== 'emergency' ? protocol.advice?.[disposition] : undefined;
+  let advice = own ?? ADVICE[disposition];
+  if (disposition === 'self_care' && !own) advice += ` If it is not better within ${protocol.seeGpAfterDays} day${protocol.seeGpAfterDays === 1 ? '' : 's'}, or it gets worse, see a doctor.`;
   // The reasons are listed separately ("Why:") by renderOutcome.
 
   const contextNotes: string[] = [];
@@ -489,6 +509,7 @@ export function computeOutcome(state: TriageState, ctx: TriageContext): TriageOu
 
   return {
     disposition,
+    heading: (disposition !== 'emergency' ? protocol.heading?.[disposition] : undefined) ?? HEADINGS[disposition],
     flags,
     summary: summarise(state, protocol),
     advice,
@@ -496,6 +517,24 @@ export function computeOutcome(state: TriageState, ctx: TriageContext): TriageOu
     safetyNet: protocol.safetyNet,
     contextNotes,
   };
+}
+
+/**
+ * What the problem is called in records and summaries: the protocol name, or for the
+ * general questions a cleaned-up version of what the person described. A question or
+ * an unclear message is never recorded as the patient's problem.
+ */
+export function complaintLabel(state: Pick<TriageState, 'protocolId' | 'complaint'>): string {
+  const protocol = protocolById(state.protocolId);
+  if (protocol && protocol.id !== 'general') return protocol.label;
+  const c = (state.complaint ?? '').trim();
+  if (!c || !isSymptomStatement(c)) return 'Symptom check';
+  const cleaned = c
+    .replace(/^\s*(i\s*(have|'ve got|got|am having|'m having|have been having|feel|'m feeling|am feeling|keep getting|keep)|feeling|having|been having|suffering from|mujhe|mera|meri)\s+/i, '')
+    .replace(/^\s*(a|an|some|really|very|bad|severe)\s+/i, '')
+    .replace(/[.!]+$/, '')
+    .trim();
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : 'Symptom check';
 }
 
 export function summarise(state: TriageState, protocol: Protocol = currentProtocol(state)): string {
@@ -512,8 +551,8 @@ export function summarise(state: TriageState, protocol: Protocol = currentProtoc
       : a.value;
     parts.push(`${slot.label}: ${v}`);
   }
-  const head = `${protocol.id === 'general' ? 'Problem' : protocol.label}${state.complaint ? ` — “${state.complaint}”` : ''}`;
-  return [head, ...parts].join('\n');
+  const words = state.complaint && isSymptomStatement(state.complaint) ? state.complaint : null;
+  return [`Problem: ${complaintLabel(state)}`, ...(words ? [`In your words: “${words}”`] : []), ...parts].join('\n');
 }
 
 const HEADINGS: Record<Disposition, string> = {
@@ -525,7 +564,7 @@ const HEADINGS: Record<Disposition, string> = {
 };
 
 export function renderOutcome(o: TriageOutcome): string {
-  const lines = [`${HEADINGS[o.disposition]}`, '', o.advice];
+  const lines = [`${o.heading ?? HEADINGS[o.disposition]}`, '', o.advice];
   const reasons = o.flags.filter((f) => f.level === (o.disposition === 'gp' ? 'gp' : o.disposition)).map((f) => f.reason);
   if (reasons.length && (o.disposition === 'urgent' || o.disposition === 'gp')) lines.push('', 'Why:', ...uniqText(reasons).map((r) => `• ${cap1(r)}`));
   lines.push('', 'What you told me:', o.summary);

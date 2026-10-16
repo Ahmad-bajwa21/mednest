@@ -33,7 +33,9 @@ export function planEnrichment(
 ): EnrichPlan {
   // Symptoms, small talk and feedback are conversation, not something to search for.
   const kind = classifyMessage(question);
-  if (kind !== 'question' && kind !== 'unclear') return null;
+  if (kind !== 'question' && kind !== 'unclear' && kind !== 'topic') return null;
+  // A bare health term ("anxiety") is a request for information about it.
+  if (kind === 'topic' && !identifyMedicine(question.trim())) return { kind: 'topic', term: question.trim().toLowerCase() };
   const q = ` ${question.toLowerCase()} `;
   const wantsInfo = /\b(what|why|for|about|side ?effects?|warnings?|interact\w*|safe|tell|explain|use|used|kya)\b/.test(q);
   const otherGenerics = [...new Set(meds.map((m) => identifyMedicine(m.name)?.generic).filter((g): g is string => !!g))];

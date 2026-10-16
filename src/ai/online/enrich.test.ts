@@ -43,3 +43,9 @@ describe('conversation is never searched online', () => {
     expect(planEnrichment(q, 'I couldn’t find an answer to that', meds, {})).toBeNull();
   });
 });
+
+describe('bare health terms get information', () => {
+  it.each(['anxiety', 'headaches', 'stomach pain', 'depression'])('%s → topic lookup', (q) => {
+    expect(planEnrichment(q, '', [], {})).toEqual({ kind: 'topic', term: q });
+  });
+});

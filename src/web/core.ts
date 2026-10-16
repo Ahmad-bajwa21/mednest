@@ -30,3 +30,6 @@ export { buildVisitSummary, renderVisitSummaryText } from '../domain/visitSummar
 export { lookupMedicineOnline, lookupTopicOnline, renderDrugInfo, renderTopicInfo } from '../ai/online/medicalSources';
 export { planEnrichment, runEnrichment, topicOf } from '../ai/online/enrich';
 export { classifyMessage, conversationalReply, isSymptomStatement } from '../ai/conversation';
+export { canonicalTopic } from '../ai/online/medicalSources';
+export { symptomOffer, wantsCheck, topicForSymptom, OFFER_CHECK, OFFER_INFO, isMentalHealth } from '../ai/conversation';
+export { complaintLabel } from '../ai/triage/engine';
